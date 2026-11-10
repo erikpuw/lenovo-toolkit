@@ -98,4 +98,6 @@ Macro, automation, tải xuống, Spectrum RGB, OSD, kiểm tra cập nhật và
 
 ## Ghi công và giấy phép
 
-Dự án phát hành theo GNU General Public License v3.0, xem [LICENSE](LICENSE). Dựa trên [LenovoLegionToolkit](https://github.com/LenovoLegionToolkit-Team/LenovoLegionToolkit) của nhóm LenovoLegionToolkit, cũng theo GPL-3.0.
+Dự án phát hành theo GNU General Public License v3.0, xem [LICENSE](LICENSE).
+
+Ý tưởng và cách nói chuyện với phần cứng Lenovo đến từ [LenovoLegionToolkit](https://github.com/BartoszCichecki/LenovoLegionToolkit) của Bartosz Cichecki, người tạo ra dự án, và từ bản do nhóm [LenovoLegionToolkit-Team](https://github.com/LenovoLegionToolkit-Team/LenovoLegionToolkit) tiếp tục phát triển. Cả hai theo GPL-3.0. Bản này được viết lại từ đầu bằng Rust và lược bỏ phần lớn tính năng của họ, xin cảm ơn các tác giả.
