@@ -793,7 +793,7 @@ pub fn spawn_tray(on_event: impl Fn(TrayEvent) + Send + Sync + 'static) {
         let _ = TASKBAR_CREATED_MSG.set(RegisterWindowMessageW(w!("TaskbarCreated")));
         let hmodule = GetModuleHandleW(PCWSTR::null()).unwrap_or_default();
         let hinstance = HINSTANCE(hmodule.0);
-        let class_name = w!("LegionRustTrayWnd");
+        let class_name = w!("LenovoToolkitTrayWnd");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),
             hInstance: hinstance,
@@ -811,7 +811,7 @@ pub fn spawn_tray(on_event: impl Fn(TrayEvent) + Send + Sync + 'static) {
         let Ok(hwnd) = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class_name,
-            w!("LegionRustTray"),
+            w!("LenovoToolkitTray"),
             WINDOW_STYLE::default(),
             0,
             0,

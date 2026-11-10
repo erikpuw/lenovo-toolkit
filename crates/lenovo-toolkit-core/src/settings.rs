@@ -16,7 +16,26 @@ pub fn app_dir() -> PathBuf {
 }
 
 pub fn file_path(name: &str) -> PathBuf {
+    if name == APP_FILE {
+        // Lần đầu dùng tên file mới thì chuyển cài đặt cũ sang, để người đã dùng bản cũ không mất cài đặt.
+        static MIGRATE: std::sync::Once = std::sync::Once::new();
+        MIGRATE.call_once(|| {
+            let _ = migrate_legacy_file_at(&app_dir());
+        });
+    }
     app_dir().join(name)
+}
+
+/// Tên file cài đặt trước khi ứng dụng đổi tên thành Lenovo Toolkit.
+const LEGACY_APP_FILE: &str = "legion-rs.json";
+
+/// Sao chép file cài đặt cũ sang tên mới nếu file mới chưa có (giữ nguyên file cũ). Trả về `true` nếu đã chép.
+pub fn migrate_legacy_file_at(dir: &Path) -> io::Result<bool> {
+    let (old, new) = (dir.join(LEGACY_APP_FILE), dir.join(APP_FILE));
+    if new.exists() || !old.exists() {
+        return Ok(false);
+    }
+    std::fs::copy(old, new).map(|_| true)
 }
 
 fn read_object(path: &Path) -> Map<String, Value> {
@@ -50,7 +69,7 @@ pub fn set_value_at(path: &Path, key: &str, value: Value) -> io::Result<()> {
 }
 
 /// Cờ riêng của bản Rust, lưu cạnh các tệp của bản C# trong cùng thư mục.
-pub const APP_FILE: &str = "legion-rs.json";
+pub const APP_FILE: &str = "lenovo-toolkit.json";
 pub const DISABLE_LENOVO_HOTKEYS: &str = "DisableLenovoHotkeys";
 pub const DISABLE_VANTAGE: &str = "DisableVantage";
 pub const DISABLE_LEGION_ZONE: &str = "DisableLegionZone";
@@ -276,6 +295,22 @@ mod tests {
         set_bool_at(&p, "X", false).unwrap();
         assert_eq!(get_opt_bool_at(&p, "X"), Some(false));
         assert_eq!(get_opt_bool_at(&p, "Y"), None);
+    }
+
+    #[test]
+    fn legacy_settings_file_is_copied_once_and_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!("ltk-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(!migrate_legacy_file_at(&dir).unwrap(), "chưa có file cũ thì không làm gì");
+        fs::write(dir.join(LEGACY_APP_FILE), r#"{"Language":"vi"}"#).unwrap();
+        assert!(migrate_legacy_file_at(&dir).unwrap());
+        assert_eq!(lang_at(&dir.join(APP_FILE)), Lang::Vi);
+        assert!(dir.join(LEGACY_APP_FILE).exists(), "file cũ được giữ nguyên");
+        fs::write(dir.join(APP_FILE), r#"{"Language":"en"}"#).unwrap();
+        assert!(!migrate_legacy_file_at(&dir).unwrap(), "file mới đã có thì không ghi đè");
+        assert_eq!(lang_at(&dir.join(APP_FILE)), Lang::En);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

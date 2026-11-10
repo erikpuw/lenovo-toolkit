@@ -13,7 +13,9 @@ use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
 
 use crate::disabler::powershell;
 
-const TASK_NAME: &str = "LegionToolkitRust_Autorun";
+const TASK_NAME: &str = "LenovoToolkit_Autorun";
+/// Tên task trước khi đổi tên ứng dụng: vẫn được nhận ra là đang bật, và bị xóa khi bật/tắt lại.
+const LEGACY_TASK_NAME: &str = "LegionToolkitRust_Autorun";
 const DELAY: &str = "PT30S";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +73,8 @@ fn register_script(exe: &str, delayed: bool, run_level: &str) -> String {
          $t=New-ScheduledTaskTrigger -AtLogOn -User $user; {delay}\
          $p=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel {run_level}; \
          $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero); \
-         Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null",
+         Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null; \
+         Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue",
         exe = ps_quote(exe),
         dir = ps_quote(dir),
     )
@@ -80,6 +83,7 @@ fn register_script(exe: &str, delayed: bool, run_level: &str) -> String {
 pub fn state() -> io::Result<AutorunState> {
     let out = powershell(&format!(
         "$t=Get-ScheduledTask -TaskName '{TASK_NAME}' -ErrorAction SilentlyContinue; \
+         if(-not $t){{$t=Get-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -ErrorAction SilentlyContinue}}; \
          if(-not $t){{'disabled'}} elseif($t.Triggers[0].Delay){{'delayed'}} else {{'enabled'}}"
     ))?;
     Ok(parse_state(&out))
@@ -89,7 +93,8 @@ pub fn state() -> io::Result<AutorunState> {
 pub fn set(state: AutorunState) -> io::Result<()> {
     if state == AutorunState::Disabled {
         return powershell(&format!(
-            "Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue"
+            "Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue; \
+             Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue"
         ))
         .map(drop);
     }
@@ -134,6 +139,9 @@ mod tests {
         assert!(s.contains("$t.Delay = 'PT30S'"));
         assert!(s.contains(r"'C:\Tools'"));
         assert!(!register_script(r"C:\a.exe", false, "Limited").contains("Delay"));
+        // Đăng ký task mới thì xóa task cũ để không chạy hai lần.
+        assert!(s.contains("Register-ScheduledTask -TaskName 'LenovoToolkit_Autorun'"));
+        assert!(s.contains("Unregister-ScheduledTask -TaskName 'LegionToolkitRust_Autorun'"));
     }
 
     #[test]

@@ -168,7 +168,7 @@ struct Snapshot {
     battery_percent: String,
     battery_status: String,
     battery_warning: String,
-    battery_rows: Option<Vec<(&'static str, &'static str, String)>>,
+    battery_rows: Option<BatteryRows>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -535,6 +535,8 @@ fn build_settings(
 }
 
 /// Dựng 4 nhóm điều khiển (Power, Graphics, Display, Other) theo luồng dọc từ trên xuống.
+/// `current_mode` do nơi gọi đọc sẵn để không hỏi WMI chế độ nguồn thêm lần nữa.
+#[allow(clippy::too_many_arguments)]
 fn build_groups(
     lang: Lang,
     wmi: Option<&Wmi>,
@@ -542,6 +544,7 @@ fn build_groups(
     info: Option<&MachineInfo>,
     sup: &Support,
     dgpu_awake: bool,
+    current_mode: Option<PowerMode>,
     // Khung hình đầu: chưa có kết nối phần cứng nhưng vẫn dựng đủ thẻ tĩnh, giá trị là "-" hoặc "đang đọc".
     loading: bool,
 ) -> [Vec<ItemSnap>; 4] {
@@ -559,7 +562,6 @@ fn build_groups(
         .map(|i| i.supported_power_modes.clone())
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| vec![PowerMode::Quiet, PowerMode::Balance, PowerMode::Performance]);
-    let current_mode = wmi.and_then(|w| power::get_with(w).ok());
     let mut pm = combo(
         "powermode",
         "\u{E945}",
@@ -810,6 +812,21 @@ fn row(label: &'static str, value: impl Into<String>, fraction: f32) -> RowSnap 
     RowSnap { label, value: value.into(), fraction }
 }
 
+/// Các hàng của trang Pin: (tiêu đề, mô tả, giá trị).
+type BatteryRows = Vec<(&'static str, &'static str, String)>;
+
+/// Phần trăm và trạng thái pin rút gọn (khi không ở trang Pin hoặc chưa đọc được chi tiết từ driver).
+/// `bat` là (phần trăm, đang cắm sạc, đang sạc); trả về (phần trăm, trạng thái, cảnh báo, hàng chi tiết).
+fn plain_battery(bat: Option<(Option<u8>, bool, bool)>, lang: Lang) -> (String, String, String, Option<BatteryRows>) {
+    let status = match bat {
+        Some((_, true, true)) => tr(lang, "Connected, charging...", "Đã cắm sạc, đang sạc..."),
+        Some((_, true, false)) => tr(lang, "Connected, not charging", "Đã cắm sạc, không sạc"),
+        Some(_) => tr(lang, "Discharging", "Đang dùng pin"),
+        None => DASH,
+    };
+    (percent(bat.and_then(|b| b.0).map(u32::from)), status.into(), String::new(), None)
+}
+
 struct Worker {
     lang: Lang,
     wmi: Option<Wmi>,
@@ -829,6 +846,8 @@ struct Worker {
     hw_overview: Option<sysstat::HardwareOverview>,
     /// Kết quả đọc phần cứng chạy nền từ lúc khởi động (cũng cấp tên CPU/GPU cho bảng cảm biến).
     hw_rx: Option<mpsc::Receiver<sysstat::HardwareOverview>>,
+    /// Trạng thái Autorun đọc nền từ lúc khởi động (đọc cần chạy PowerShell, mất khoảng một giây).
+    autorun_rx: Option<mpsc::Receiver<AutorunState>>,
     device_info_due: bool,
     op_list_cache: Option<Vec<(String, i32)>>,
     rate_tracker: RateTracker,
@@ -862,7 +881,11 @@ impl Worker {
         errors.join(" · ")
     }
 
-    fn new(start_visible: bool, hw_rx: Option<mpsc::Receiver<sysstat::HardwareOverview>>) -> Self {
+    fn new(
+        start_visible: bool,
+        hw_rx: Option<mpsc::Receiver<sysstat::HardwareOverview>>,
+        autorun_rx: Option<mpsc::Receiver<AutorunState>>,
+    ) -> Self {
         let mut cpu = CpuMeter::new();
         let _ = cpu.sample(); // mồi mẫu đầu tiên để lần mở cửa sổ có ngay % CPU
         let wmi = Wmi::open().ok();
@@ -885,6 +908,7 @@ impl Worker {
             custom_applied: false,
             hw_overview: None,
             hw_rx,
+            autorun_rx,
             device_info_due: false,
             op_list_cache: None,
             rate_tracker: RateTracker::default(),
@@ -918,6 +942,20 @@ impl Worker {
             self.hw_overview = Some(hw);
         }
         self.hw_overview.as_ref()
+    }
+
+    /// Trạng thái Autorun: lấy kết quả đọc nền nếu có (chờ nếu chưa xong), không thì tự đọc.
+    fn autorun_state(&mut self) -> AutorunState {
+        if let Some(s) = self.autorun {
+            return s;
+        }
+        let s = self
+            .autorun_rx
+            .take()
+            .and_then(|rx| rx.recv().ok())
+            .unwrap_or_else(|| autorun::state().unwrap_or(AutorunState::Disabled));
+        self.autorun = Some(s);
+        s
     }
 
     /// Thiết bị thuộc nhóm gaming (hoặc chưa rõ): chỉ khi đó mới ghi xuống phần cứng.
@@ -1144,26 +1182,25 @@ impl Worker {
         Ok(())
     }
 
-    fn apply_saved_custom_on_entry(&mut self) {
+    /// Áp lại cấu hình Custom đã lưu khi vừa vào chế độ Custom. Trả về chế độ nguồn hiện tại để
+    /// nơi gọi dùng lại, khỏi hỏi WMI lần nữa trong cùng một vòng.
+    fn apply_saved_custom_on_entry(&mut self) -> Option<PowerMode> {
         let _ = self.ensure_wmi();
-        let mode_is_custom = self
-            .wmi
-            .as_ref()
-            .and_then(|w| power::get_with(w).ok())
-            .is_some_and(|m| m == PowerMode::GodMode);
-        if !mode_is_custom {
+        let mode = self.wmi.as_ref().and_then(|w| power::get_with(w).ok());
+        if mode != Some(PowerMode::GodMode) {
             self.custom_applied = false;
-            return;
+            return mode;
         }
         if self.custom_applied {
-            return;
+            return mode;
         }
-        let Some((w, info)) = self.wmi.as_ref().zip(self.info.as_ref()) else { return };
-        let Some(editor) = Self::build_editor(w, info) else { return };
+        let Some((w, info)) = self.wmi.as_ref().zip(self.info.as_ref()) else { return mode };
+        let Some(editor) = Self::build_editor(w, info) else { return mode };
         self.custom_applied = true;
         if let Err(e) = custom::apply(w, editor.current(), &editor.ranges) {
             self.last_error = format!("Custom mode: {}", explain(e));
         }
+        mode
     }
 
     fn custom_snap(&self) -> Option<CustomSnap> {
@@ -1630,20 +1667,21 @@ impl Worker {
         // AI Engine: chỉ kiểm tra mỗi ITEMS_EVERY vòng (10 giây) hoặc khi vừa thao tác, dùng lại kết nối WMI.
         // Thẻ điều khiển và AI chỉ thuộc trang Dashboard: ở trang Pin/Settings không tốn hàng chục truy vấn WMI.
         let _ = self.hw(false);
+        let ai_on = ai::is_enabled(); // đọc file một lần mỗi vòng
         let items_tick = self.items_due || self.tick.is_multiple_of(ITEMS_EVERY);
         let check_items = items_tick && self.page == 0;
         self.items_due = false; // mọi lệnh kế tiếp (đổi trang, đổi cài đặt...) tự bật lại
         if check_items
             && self.last_error.is_empty()
             && self.info.as_ref().is_some_and(|i| i.properties.supports_ai_mode)
-            && ai::is_enabled()
+            && ai_on
             && let Some(w) = self.wmi.as_ref()
             && let Err(e) = ai::refresh_with(w, &mut self.op_list_cache)
         {
             self.last_error = format!("AI: {}", explain(e));
         }
 
-        self.apply_saved_custom_on_entry();
+        let power_mode = self.apply_saved_custom_on_entry();
 
         let mut problems = Vec::new();
         if !self.last_error.is_empty() {
@@ -1798,30 +1836,10 @@ impl Worker {
                         Some(build_battery_rows(&d, lang)),
                     )
                 }
-                Err(_) => (
-                    percent(bat.and_then(|b| b.percent).map(u32::from)),
-                    match bat {
-                        Some(b) if b.ac_online && b.charging => tr(lang, "Connected, charging...", "Đã cắm sạc, đang sạc...").into(),
-                        Some(b) if b.ac_online => tr(lang, "Connected, not charging", "Đã cắm sạc, không sạc").into(),
-                        Some(_) => tr(lang, "Discharging", "Đang dùng pin").into(),
-                        None => DASH.into(),
-                    },
-                    String::new(),
-                    None,
-                ),
+                Err(_) => plain_battery(bat.map(|b| (b.percent, b.ac_online, b.charging)), lang),
             }
         } else {
-            (
-                percent(bat.and_then(|b| b.percent).map(u32::from)),
-                match bat {
-                    Some(b) if b.ac_online && b.charging => tr(lang, "Connected, charging...", "Đã cắm sạc, đang sạc...").into(),
-                    Some(b) if b.ac_online => tr(lang, "Connected, not charging", "Đã cắm sạc, không sạc").into(),
-                    Some(_) => tr(lang, "Discharging", "Đang dùng pin").into(),
-                    None => DASH.into(),
-                },
-                String::new(),
-                None,
-            )
+            plain_battery(bat.map(|b| (b.percent, b.ac_online, b.charging)), lang)
         };
 
         if self.support.is_none() || (self.support_without_info && self.info.is_some()) {
@@ -1843,6 +1861,7 @@ impl Worker {
                 self.info.as_ref(),
                 &sup,
                 dgpu_awake,
+                power_mode,
                 false,
             ))
         } else {
@@ -1852,9 +1871,7 @@ impl Worker {
         // Chỉ truy vấn schtasks / dịch vụ nền (Settings) khi mở trang Settings hoặc vừa sửa cài đặt.
         let settings_items = (self.settings_due || (self.page == 2 && items_tick)).then(|| {
             self.settings_due = false;
-            let ar = *self
-                .autorun
-                .get_or_insert_with(|| autorun::state().unwrap_or(AutorunState::Disabled));
+            let ar = self.autorun_state();
             let status = |sw| disabler::status(sw).ok();
             build_settings(
                 lang,
@@ -1883,7 +1900,7 @@ impl Worker {
             model: self.info.as_ref().map_or_else(|| "Lenovo".to_string(), |i| i.model.clone()),
             status: problems.join(" · "),
             notice: self.unsupported_message(),
-            ai_enabled: ai::is_enabled(),
+            ai_enabled: ai_on,
             sensor_sections,
             groups,
             battery_percent,
@@ -2096,7 +2113,7 @@ fn skeleton(lang: Lang) -> Snapshot {
             sensors("GPU", String::new(), vec![util, temp_l, fan]),
             sensors(tr(lang, "System", "Hệ thống"), tr(lang, "Memory & Board", "Bộ nhớ & Bo mạch").into(), vec!["RAM", tr(lang, "Battery", "Pin")]),
         ],
-        groups: Some(build_groups(lang, None, None, None, &Support::placeholder(), false, true)),
+        groups: Some(build_groups(lang, None, None, None, &Support::placeholder(), false, None, true)),
         battery_percent: DASH.into(),
         battery_status: DASH.into(),
         battery_rows: Some(build_battery_rows(&blank, lang).into_iter().map(|(t, m, _)| (t, m, DASH.to_string())).collect()),
@@ -2121,7 +2138,15 @@ fn run_worker(rx: mpsc::Receiver<Cmd>, tx: mpsc::Sender<Cmd>, ui: slint::Weak<Ap
     thread::spawn(move || {
         let _ = hw_tx.send(sysstat::hardware_overview());
     });
-    let mut w = Worker::new(start_visible, Some(hw_rx));
+    // Autorun cần chạy PowerShell nên cũng đọc nền; khởi động ẩn thì để đến khi mở Cài đặt mới đọc.
+    let autorun_rx = start_visible.then(|| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(autorun::state().unwrap_or(AutorunState::Disabled));
+        });
+        rx
+    });
+    let mut w = Worker::new(start_visible, Some(hw_rx), autorun_rx);
     if start_visible {
         // Đẩy khung hình đầu tiên ngay lập tức trước khi chạy các tác vụ kiểm tra dịch vụ nền.
         w.settings_due = false;
@@ -2129,17 +2154,20 @@ fn run_worker(rx: mpsc::Receiver<Cmd>, tx: mpsc::Sender<Cmd>, ui: slint::Weak<Ap
         w.settings_due = true;
         let _ = slint::invoke_from_event_loop({
             let ui = ui.clone();
-            let tx = tx.clone();
             move || {
                 if let Some(ui) = ui.upgrade() {
-                    if ui.window().is_minimized() && settings::flag(settings::MINIMIZE_TO_TRAY, true) {
-                        hide_window_to_tray(&ui, &tx);
-                    } else {
-                        push(&ui, snap);
-                    }
+                    push(&ui, snap);
                 }
             }
         });
+        // Bấm vào thẻ lúc giao diện còn là khung tạm (giá trị "-") thì bỏ: thẻ chưa có giá trị thật để ghi.
+        // Các lệnh khác (đổi trang, ẩn/hiện...) giữ lại.
+        let early: Vec<Cmd> = rx.try_iter().collect();
+        for c in early {
+            if !matches!(c, Cmd::Combo(..) | Cmd::Toggle(..) | Cmd::Ai(_)) {
+                let _ = tx.send(c);
+            }
+        }
     } else {
         tray::trim_working_set();
     }
@@ -2166,14 +2194,9 @@ fn run_worker(rx: mpsc::Receiver<Cmd>, tx: mpsc::Sender<Cmd>, ui: slint::Weak<Ap
         let snap = w.snapshot();
         let sent = slint::invoke_from_event_loop({
             let ui = ui.clone();
-            let tx = tx.clone();
             move || {
                 if let Some(ui) = ui.upgrade() {
-                    if ui.window().is_minimized() && settings::flag(settings::MINIMIZE_TO_TRAY, true) {
-                        hide_window_to_tray(&ui, &tx);
-                    } else {
-                        push(&ui, snap);
-                    }
+                    push(&ui, snap);
                 }
             }
         });
@@ -2382,6 +2405,23 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     })
     .ok();
+
+    // Thu nhỏ xuống khay ngay khi cửa sổ bị thu nhỏ: kiểm tra 4 lần/giây ở luồng giao diện (chỉ một lệnh đọc
+    // cờ trên đường nhanh), thay cho việc đợi vòng đọc cảm biến 2 giây rồi mới ẩn, lúc đó nút đã kịp nằm trên taskbar.
+    let minimize_timer = slint::Timer::default();
+    minimize_timer.start(slint::TimerMode::Repeated, Duration::from_millis(250), {
+        let weak = ui.as_weak();
+        let tx = tx.clone();
+        move || {
+            if let Some(ui) = weak.upgrade()
+                && ui.window().is_visible()
+                && ui.window().is_minimized()
+                && settings::flag(settings::MINIMIZE_TO_TRAY, true)
+            {
+                hide_window_to_tray(&ui, &tx);
+            }
+        }
+    });
 
     let weak = ui.as_weak();
     thread::spawn(move || run_worker(rx, tx, weak, !start_minimized));
