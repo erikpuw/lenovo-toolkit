@@ -98,4 +98,4 @@ Macros, automation, downloads, Spectrum RGB, the OSD, update checks and integrat
 
 ## Credits and license
 
-Based on [LenovoLegionToolkit](https://github.com/LenovoLegionToolkit-Team/LenovoLegionToolkit) by the LenovoLegionToolkit team, which is released under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the terms of this repository.
+Released under the GNU General Public License v3.0, see [LICENSE](LICENSE). Based on [LenovoLegionToolkit](https://github.com/LenovoLegionToolkit-Team/LenovoLegionToolkit) by the LenovoLegionToolkit team, also under GPL-3.0.
