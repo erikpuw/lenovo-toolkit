@@ -1,0 +1,11 @@
+[package]
+name = "lenovo-toolkit-cli"
+version = "1.0.1"
+edition = "2024"
+
+[[bin]]
+name = "lenovo-toolkit-cli"
+path = "src/main.rs"
+
+[dependencies]
+lenovo-toolkit-core = { path = "../lenovo-toolkit-core" }

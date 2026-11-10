@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/lenovo-toolkit-core", "crates/lenovo-toolkit-cli", "crates/lenovo-toolkit"]
+resolver = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"
