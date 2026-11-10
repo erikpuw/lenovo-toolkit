@@ -74,7 +74,8 @@ fn register_script(exe: &str, delayed: bool, run_level: &str) -> String {
          $p=New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel {run_level}; \
          $s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero); \
          Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null; \
-         Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue",
+         Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue; \
+         exit 0",
         exe = ps_quote(exe),
         dir = ps_quote(dir),
     )
@@ -94,7 +95,8 @@ pub fn set(state: AutorunState) -> io::Result<()> {
     if state == AutorunState::Disabled {
         return powershell(&format!(
             "Unregister-ScheduledTask -TaskName '{TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue; \
-             Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue"
+             Unregister-ScheduledTask -TaskName '{LEGACY_TASK_NAME}' -Confirm:$false -ErrorAction SilentlyContinue; \
+             exit 0"
         ))
         .map(drop);
     }
@@ -142,6 +144,8 @@ mod tests {
         // Đăng ký task mới thì xóa task cũ để không chạy hai lần.
         assert!(s.contains("Register-ScheduledTask -TaskName 'LenovoToolkit_Autorun'"));
         assert!(s.contains("Unregister-ScheduledTask -TaskName 'LegionToolkitRust_Autorun'"));
+        // Xóa task không tồn tại với SilentlyContinue vẫn làm PowerShell thoát mã 1 (lỗi trống), nên phải kết thúc bằng exit 0.
+        assert!(s.trim_end().ends_with("exit 0"));
     }
 
     #[test]
