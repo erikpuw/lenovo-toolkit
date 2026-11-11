@@ -98,6 +98,6 @@ Macros, automation, downloads, Spectrum RGB, the OSD, update checks and integrat
 
 ## Credits and license
 
-The license of this project is in [LICENSE](LICENSE).
+Released under the GNU General Public License v3.0, see [LICENSE](LICENSE).
 
 The ideas and the way this app talks to Lenovo hardware come from [LenovoLegionToolkit](https://github.com/BartoszCichecki/LenovoLegionToolkit) by Bartosz Cichecki, who created it, and from the version the [LenovoLegionToolkit-Team](https://github.com/LenovoLegionToolkit-Team/LenovoLegionToolkit) keeps developing. Both are under GPL-3.0. This version was rewritten in Rust and drops most of their features. Thanks to the authors.
