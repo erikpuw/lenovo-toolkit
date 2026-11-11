@@ -19,7 +19,7 @@
 
 | Tính năng | Chức năng |
 |---|---|
-| Chế độ nguồn | Quiet, Balance, Performance, Extreme và Custom, tùy máy hỗ trợ. Fn+Q dùng được và ứng dụng cập nhật theo. Ở Balance, nút bánh răng mở công tắc AI Engine. |
+| Chế độ nguồn | Quiet, Balance, Performance, Extreme và Custom, tùy máy hỗ trợ. Fn+Q dùng được và ứng dụng cập nhật theo. Performance, Extreme và Custom cần cắm sạc, và trên các BIOS có lỗi chuyển chế độ thì ứng dụng đi qua một chế độ trung gian trước, giống bản gốc. Ở Balance, nút bánh răng mở công tắc AI Engine. |
 | Custom mode | Hai cấu hình. Mặc định của Lenovo bị khóa. Cấu hình Custom chỉnh giới hạn firmware theo đúng bước của firmware và cảnh báo khi giá trị rủi ro. Quạt tối đa mặc định tắt và được ghi lại là tắt mỗi lần áp dụng, nên quạt không bị kẹt ở 100%. |
 | Quạt và cảm biến | Nhiệt độ CPU, GPU và PCH, tốc độ quạt, mức dùng CPU, GPU và RAM, phần trăm pin. |
 | Pin | Chế độ sạc (Thường, Nhanh, Bảo vệ pin 80%), sạc pin qua đêm, luôn bật sạc USB. Trang Pin hiện nhiệt độ, tốc độ sạc và xả, dung lượng, sức khỏe, số chu kỳ và ngày tháng. |
@@ -73,6 +73,11 @@ lenovo-toolkit-cli usb <get|set <off|sleeping|always>>
 lenovo-toolkit-cli kbd <get|max|set <level>>
 lenovo-toolkit-cli threshold <get|off|set <start> <stop>>
 lenovo-toolkit-cli info
+lenovo-toolkit-cli ai <status|refresh|set <on|off>>
+lenovo-toolkit-cli custom show
+lenovo-toolkit-cli games
+lenovo-toolkit-cli software status
+lenovo-toolkit-cli software <fnkeys|vantage|legionzone|legionspace> <disable|enable>
 lenovo-toolkit-cli keys
 lenovo-toolkit-cli events
 ```

@@ -19,7 +19,7 @@
 
 | Feature | What it does |
 |---|---|
-| Power modes | Quiet, Balance, Performance, Extreme and Custom, as far as your laptop supports them. Fn+Q works and the app follows it. In Balance, the gear button opens the AI Engine switch. |
+| Power modes | Quiet, Balance, Performance, Extreme and Custom, as far as your laptop supports them. Fn+Q works and the app follows it. Performance, Extreme and Custom need the charger plugged in, and on BIOS versions with known switching bugs the app goes through an intermediate mode first, as the original does. In Balance, the gear button opens the AI Engine switch. |
 | Custom mode | Two presets. The Lenovo default is locked. The Custom preset edits the firmware limits in the firmware's own steps and warns on risky values. Full fan speed is off by default and is written off again on every apply, so the fans are never left at 100%. |
 | Fans and sensors | CPU, GPU and PCH temperature, fan speed, CPU, GPU and RAM usage, battery level. |
 | Battery | Charge mode (Normal, Rapid, Conservation at 80%), overnight charge, always-on USB. A Battery page shows temperature, charge and discharge rate, capacity, health, cycle count and dates. |
@@ -73,6 +73,11 @@ lenovo-toolkit-cli usb <get|set <off|sleeping|always>>
 lenovo-toolkit-cli kbd <get|max|set <level>>
 lenovo-toolkit-cli threshold <get|off|set <start> <stop>>
 lenovo-toolkit-cli info
+lenovo-toolkit-cli ai <status|refresh|set <on|off>>
+lenovo-toolkit-cli custom show
+lenovo-toolkit-cli games
+lenovo-toolkit-cli software status
+lenovo-toolkit-cli software <fnkeys|vantage|legionzone|legionspace> <disable|enable>
 lenovo-toolkit-cli keys
 lenovo-toolkit-cli events
 ```
