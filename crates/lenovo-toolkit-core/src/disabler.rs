@@ -272,7 +272,7 @@ pub fn status(sw: Software) -> io::Result<Status> {
 // ---- Scheduled task ----
 
 /// Chạy một đoạn PowerShell ẩn cửa sổ, trả về stdout; lỗi nếu mã thoát khác 0.
-pub(crate) fn powershell(script: &str) -> io::Result<String> {
+fn powershell(script: &str) -> io::Result<String> {
     let out = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .creation_flags(CREATE_NO_WINDOW)
