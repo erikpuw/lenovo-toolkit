@@ -812,6 +812,11 @@ fn row(label: &'static str, value: impl Into<String>, fraction: f32) -> RowSnap 
     RowSnap { label, value: value.into(), fraction }
 }
 
+/// Số liệu NVAPI chỉ khi card rời đang thức; card ngủ hoặc không có card NVIDIA thì trả về rỗng.
+fn gpu_stats_if_awake(awake: Option<bool>) -> sysstat::GpuStats {
+    if awake == Some(true) { sysstat::gpu_stats() } else { sysstat::GpuStats::default() }
+}
+
 /// Các hàng của trang Pin: (tiêu đề, mô tả, giá trị).
 type BatteryRows = Vec<(&'static str, &'static str, String)>;
 
@@ -999,8 +1004,9 @@ impl Worker {
 
         let (cpu_temp, ec_gpu_temp, cpu_fan, gpu_fan) =
             sensors.map_or((-1, -1, -1, -1), |x| (x.cpu_temp, x.gpu_temp, x.cpu_fan_rpm, x.gpu_fan_rpm));
-        let nv = sysstat::gpu_stats();
-        let gpu_temp = if ec_gpu_temp > 0 { ec_gpu_temp } else { nv.temp_c.unwrap_or(-1) };
+        // Chỉ hỏi NVAPI khi card rời đang thức (hỏi lúc nó ngủ sẽ đánh thức nó); nhiệt độ ưu tiên NVAPI rồi mới tới EC như bản C#.
+        let nv = gpu_stats_if_awake(sysstat::nvidia_gpu_awake());
+        let gpu_temp = nv.temp_c.unwrap_or(ec_gpu_temp);
         let mode = self
             .wmi
             .as_ref()
@@ -1721,15 +1727,13 @@ impl Worker {
         let (cpu_temp, ec_gpu_temp, pch_temp) = readings.map_or((-1, -1, -1), |x| (x.cpu_temp, x.gpu_temp, x.pch_temp));
         let (cpu_fan, gpu_fan) = readings.map_or((-1, -1), |x| (x.cpu_fan_rpm, x.gpu_fan_rpm));
 
-        // Đọc % tải và nhiệt độ GPU NVIDIA qua nvapi64.dll (nhẹ, < 0.05ms, chỉ khi ở trang Home)
-        let nv_gpu = if self.page == 0 { sysstat::gpu_stats() } else { sysstat::GpuStats::default() };
-        let gpu_temp = if ec_gpu_temp > 0 {
-            ec_gpu_temp
-        } else {
-            nv_gpu.temp_c.unwrap_or(-1)
-        };
-        let gpu_util = nv_gpu.utilization.or_else(|| (gpu_temp > 0).then_some(0));
-        let dgpu_awake = gpu_temp > 0 || nv_gpu.utilization.is_some();
+        // Trạng thái card rời lấy từ Windows (không đánh thức card); chỉ khi card đang thức mới hỏi NVAPI % tải
+        // và nhiệt độ, như bản C# bỏ qua NVAPI khi card ở GC6/GcOff. Nhiệt độ ưu tiên NVAPI rồi tới EC.
+        let dgpu_state = if self.page == 0 { sysstat::nvidia_gpu_awake() } else { None };
+        let nv_gpu = gpu_stats_if_awake(dgpu_state);
+        let gpu_temp = nv_gpu.temp_c.unwrap_or(ec_gpu_temp);
+        let gpu_util = nv_gpu.utilization;
+        let dgpu_awake = dgpu_state == Some(true);
 
         // Bảng cảm biến gộp gọn 3 phần (CPU, GPU, System), đồng bộ 3 dòng mỗi cột.
         let mut sys_rows = vec![row(

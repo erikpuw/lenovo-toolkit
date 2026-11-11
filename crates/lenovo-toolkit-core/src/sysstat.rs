@@ -177,7 +177,54 @@ fn nvapi() -> Option<&'static NvApi> {
         .as_ref()
 }
 
-/// Đọc % tải và nhiệt độ GPU NVIDIA qua `nvapi64.dll` (chỉ gọi khi GPU đang hoạt động).
+/// Mã hãng NVIDIA trong Hardware ID của thiết bị PCI.
+fn is_nvidia(hardware_id: &str) -> bool {
+    hardware_id.to_ascii_uppercase().contains("VEN_10DE")
+}
+
+/// Card NVIDIA đang chạy (D0) hay đang ngủ (D3), theo trạng thái nguồn Windows ghi lại cho thiết bị.
+/// Hỏi Windows chứ không hỏi card, nên không đánh thức card đang ngủ. `None` nếu không có card NVIDIA.
+///
+/// Bản C# kiểm tra `GetCoprocInfo` (GC6/GcOff) trước khi gọi NVAPI vì gọi NVAPI lúc card ngủ sẽ đánh thức nó,
+/// giữ card rời chạy, nóng máy và tốn pin. Ở đây dùng trạng thái nguồn của Windows cho cùng mục đích.
+pub fn nvidia_gpu_awake() -> Option<bool> {
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{
+        DIGCF_PRESENT, GUID_DEVCLASS_DISPLAY, SP_DEVINFO_DATA, SPDRP_DEVICE_POWER_DATA, SPDRP_HARDWAREID,
+        SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW,
+    };
+    use windows::Win32::System::Power::{CM_POWER_DATA, PowerDeviceD0};
+    use windows::core::PCWSTR;
+
+    unsafe {
+        let set = SetupDiGetClassDevsW(Some(&GUID_DEVCLASS_DISPLAY), PCWSTR::null(), None, DIGCF_PRESENT).ok()?;
+        let mut found = None;
+        for index in 0.. {
+            let mut dev = SP_DEVINFO_DATA { cbSize: size_of::<SP_DEVINFO_DATA>() as u32, ..Default::default() };
+            if SetupDiEnumDeviceInfo(set, index, &mut dev).is_err() {
+                break;
+            }
+            let mut buf = [0u8; 1024];
+            if SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_HARDWAREID, None, Some(&mut buf), None).is_err() {
+                continue;
+            }
+            let wide: Vec<u16> = buf.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+            if !is_nvidia(&String::from_utf16_lossy(&wide)) {
+                continue;
+            }
+            let mut power = CM_POWER_DATA { PD_Size: size_of::<CM_POWER_DATA>() as u32, ..Default::default() };
+            let bytes = std::slice::from_raw_parts_mut((&raw mut power).cast::<u8>(), size_of::<CM_POWER_DATA>());
+            if SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_DEVICE_POWER_DATA, None, Some(bytes), None).is_ok() {
+                found = Some(power.PD_MostRecentPowerState == PowerDeviceD0);
+                break;
+            }
+        }
+        let _ = SetupDiDestroyDeviceInfoList(set);
+        found
+    }
+}
+
+/// Đọc % tải và nhiệt độ GPU NVIDIA qua `nvapi64.dll`. Chỉ gọi khi `nvidia_gpu_awake()` là `Some(true)`,
+/// nếu không sẽ đánh thức card rời đang ngủ.
 pub fn gpu_stats() -> GpuStats {
     let Some(api) = nvapi() else {
         return GpuStats::default();
@@ -635,6 +682,20 @@ pub fn hardware_overview() -> HardwareOverview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nvidia_is_matched_by_vendor_id() {
+        assert!(is_nvidia(r"PCI\VEN_10DE&DEV_28A0&SUBSYS_3D861414"));
+        assert!(is_nvidia(r"pci\ven_10de&dev_28a0"));
+        assert!(!is_nvidia(r"PCI\VEN_8086&DEV_A788")); // Intel iGPU
+        assert!(!is_nvidia(r"PCI\VEN_1002&DEV_73DF")); // AMD
+    }
+
+    #[test]
+    fn reading_dgpu_power_state_does_not_fail() {
+        // Chỉ đọc trạng thái Windows ghi lại, chạy được không cần quyền admin; in ra để đối chiếu trên máy thật.
+        println!("nvidia_gpu_awake = {:?}", nvidia_gpu_awake());
+    }
 
     #[test]
     fn cpu_percent_from_deltas() {
