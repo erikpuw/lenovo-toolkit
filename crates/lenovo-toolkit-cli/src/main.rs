@@ -93,7 +93,9 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         ["power", "get"] => println!("{:?}", power::get()?),
         ["power", "set", s] => {
-            power::set(parse_power(s).ok_or(USAGE)?)?;
+            let w = Wmi::open()?;
+            let info = compat::detect_with(&w).ok();
+            power::switch_with(&w, info.as_ref(), parse_power(s).ok_or(USAGE)?)?;
             println!("{:?}", power::get()?);
         }
         ["threshold", "get"] => println!("{:?}", threshold::get()?),

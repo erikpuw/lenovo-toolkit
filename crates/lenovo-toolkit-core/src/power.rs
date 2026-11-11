@@ -3,6 +3,7 @@
 
 use std::io;
 
+use crate::compat::MachineInfo;
 use crate::wmi_util::Wmi;
 
 const CLASS: &str = "LENOVO_GAMEZONE_DATA";
@@ -107,15 +108,57 @@ pub fn get() -> io::Result<PowerMode> {
     get_with(&Wmi::open()?)
 }
 
-/// Chưa có: kiểm tra AC, workaround lỗi Quiet→Performance / GodMode→khác của C#.
+/// Ghi thẳng chế độ nguồn, không kiểm tra gì. Giao diện và dòng lệnh dùng `switch_with`.
 pub fn set_with(w: &Wmi, mode: PowerMode) -> io::Result<()> {
     w.call(CLASS, "SetSmartFanMode", &[("Data", mode.to_wmi() as i32)])?;
     sync_windows_power_mode(mode);
     Ok(())
 }
 
-pub fn set(mode: PowerMode) -> io::Result<()> {
-    set_with(&Wmi::open()?, mode)
+/// Chế độ chỉ chuyển được khi cắm sạc (bản C# từ chối khi máy chạy pin).
+pub fn needs_ac(mode: PowerMode) -> bool {
+    matches!(mode, PowerMode::Performance | PowerMode::Extreme | PowerMode::GodMode)
+}
+
+/// Chế độ trung gian để né lỗi firmware khi chuyển, như `PowerModeFeature.SetStateAsync` của bản C#:
+/// BIOS từ J2CN chuyển Quiet→Performance phải qua Balance; BIOS từ K1CN rời Custom phải qua một chế độ khác trước.
+pub fn intermediate(current: Option<PowerMode>, target: PowerMode, quiet_bug: bool, god_bug: bool) -> Option<PowerMode> {
+    use PowerMode::*;
+    match current {
+        Some(Quiet) if quiet_bug && target == Performance => Some(Balance),
+        Some(GodMode) if god_bug && target != GodMode => Some(match target {
+            Quiet => Performance,
+            Balance => Quiet,
+            Performance => Balance,
+            Extreme | GodMode => Extreme,
+        }),
+        _ => None,
+    }
+}
+
+/// Đổi chế độ nguồn theo đúng quy tắc của bản C#: chỉ chế độ máy hỗ trợ, các chế độ hiệu năng cao phải cắm sạc,
+/// và đi qua chế độ trung gian trên những BIOS bị lỗi chuyển chế độ.
+pub fn switch_with(w: &Wmi, info: Option<&MachineInfo>, mode: PowerMode) -> io::Result<()> {
+    if let Some(i) = info
+        && !i.supported_power_modes.is_empty()
+        && !i.supported_power_modes.contains(&mode)
+    {
+        return Err(io::Error::new(io::ErrorKind::Unsupported, format!("máy không hỗ trợ chế độ {mode:?}")));
+    }
+    if needs_ac(mode) && adapter_status_with(w) == AdapterStatus::Disconnected {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("chế độ {mode:?} cần cắm sạc (máy đang chạy pin)"),
+        ));
+    }
+    let (quiet_bug, god_bug) = info.map_or((false, false), |i| {
+        (i.properties.has_quiet_to_performance_switching_bug, i.properties.has_god_mode_to_other_mode_switching_bug)
+    });
+    if let Some(step) = intermediate(get_with(w).ok(), mode, quiet_bug, god_bug) {
+        w.call(CLASS, "SetSmartFanMode", &[("Data", step.to_wmi() as i32)])?;
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    set_with(w, mode)
 }
 
 /// Đọc trạng thái "Switch to Custom Mode with Fn+Q" (`CapabilityID.GodModeFnQSwitchable = 0x0010_0000`).
@@ -169,6 +212,29 @@ mod tests {
         assert_eq!(PowerMode::Performance.to_wmi(), 3);
         assert_eq!(PowerMode::Extreme.to_wmi(), 224);
         assert_eq!(PowerMode::GodMode.to_wmi(), 255);
+    }
+
+    #[test]
+    fn high_power_modes_need_ac_like_csharp() {
+        assert!(needs_ac(PowerMode::Performance) && needs_ac(PowerMode::Extreme) && needs_ac(PowerMode::GodMode));
+        assert!(!needs_ac(PowerMode::Quiet) && !needs_ac(PowerMode::Balance));
+    }
+
+    #[test]
+    fn firmware_bug_routes_match_csharp() {
+        use PowerMode::*;
+        // Không có lỗi BIOS: không đi vòng.
+        assert_eq!(intermediate(Some(Quiet), Performance, false, false), None);
+        // J2CN+: Quiet → Performance đi qua Balance; các cặp khác thì không.
+        assert_eq!(intermediate(Some(Quiet), Performance, true, false), Some(Balance));
+        assert_eq!(intermediate(Some(Quiet), Balance, true, false), None);
+        // K1CN+: rời Custom đi qua chế độ trung gian của bản C#.
+        assert_eq!(intermediate(Some(GodMode), Quiet, false, true), Some(Performance));
+        assert_eq!(intermediate(Some(GodMode), Balance, false, true), Some(Quiet));
+        assert_eq!(intermediate(Some(GodMode), Performance, false, true), Some(Balance));
+        assert_eq!(intermediate(Some(GodMode), Extreme, false, true), Some(Extreme));
+        assert_eq!(intermediate(Some(GodMode), GodMode, false, true), None);
+        assert_eq!(intermediate(None, Performance, true, true), None);
     }
 
     #[test]

@@ -944,6 +944,13 @@ impl Worker {
         self.hw_overview.as_ref()
     }
 
+    /// Đổi chế độ nguồn theo quy tắc của bản gốc (hỗ trợ, cắm sạc, lỗi BIOS), xem `power::switch_with`.
+    fn switch_power(&mut self, mode: PowerMode) -> Result<(), String> {
+        let _ = self.ensure_wmi();
+        let w = self.wmi.as_ref().ok_or("WMI unavailable")?;
+        power::switch_with(w, self.info.as_ref(), mode).map_err(explain)
+    }
+
     /// Trạng thái Autorun: lấy kết quả đọc nền nếu có (chờ nếu chưa xong), không thì tự đọc.
     fn autorun_state(&mut self) -> AutorunState {
         if let Some(s) = self.autorun {
@@ -1057,13 +1064,7 @@ impl Worker {
             }
             Cmd::Tooltip => Ok(()),
             Cmd::QuickPower(_) if !self.gaming() => Err(self.unsupported_message()),
-            Cmd::QuickPower(mode) => {
-                if let Some(w) = self.ensure_wmi() {
-                    power::set_with(w, mode).map_err(explain)
-                } else {
-                    power::set(mode).map_err(explain)
-                }
-            }
+            Cmd::QuickPower(mode) => self.switch_power(mode),
             Cmd::CycleRefreshRate => {
                 // Chỉ xử lý Fn+R khi dịch vụ Lenovo Hotkeys đã tắt hoặc không có trên máy
                 if disabler::status(Software::FnKeys).is_ok_and(|s| s == Status::Enabled) {
@@ -1506,14 +1507,7 @@ impl Worker {
             }
             "powermode" => {
                 let mode = parse_power_label(value).ok_or_else(bad)?;
-                if self.info.as_ref().is_some_and(|i| !i.supported_power_modes.contains(&mode)) {
-                    return Err(format!("power mode {value} is not supported on this device"));
-                }
-                if let Some(w) = self.ensure_wmi() {
-                    power::set_with(w, mode).map_err(explain)
-                } else {
-                    power::set(mode).map_err(explain)
-                }
+                self.switch_power(mode)
             }
             "hybridmode" => {
                 let mode = parse_hybrid_label(value).ok_or_else(bad)?;
