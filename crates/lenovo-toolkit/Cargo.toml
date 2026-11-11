@@ -1,6 +1,6 @@
 [package]
 name = "lenovo-toolkit"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 
 [[bin]]
@@ -9,7 +9,7 @@ path = "src/main.rs"
 test = false # manifest requireAdministrator khiến test harness của bin đòi quyền admin; logic test nằm ở lib
 
 [dependencies]
-lenovo-toolkit-core = { version = "1.0.1", path = "../lenovo-toolkit-core" }
+lenovo-toolkit-core = { version = "1.0.2", path = "../lenovo-toolkit-core" }
 slint = { version = "1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_Shell","Win32_UI_WindowsAndMessaging"] }
 

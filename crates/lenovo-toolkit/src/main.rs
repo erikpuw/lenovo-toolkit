@@ -162,7 +162,7 @@ struct Snapshot {
     /// Power, Graphics, Display, Other; `None` nếu chưa đọc lại ở vòng này.
     groups: Option<[Vec<ItemSnap>; 4]>,
     /// Trang Settings: App Behavior, Power, Smart Keys, Software Control, Notifications.
-    settings_items: Option<[Vec<ItemSnap>; 5]>,
+    settings_items: Option<[Vec<ItemSnap>; 6]>,
     custom: Option<CustomSnap>,
     device_info: Option<DeviceInfoSnap>,
     battery_percent: String,
@@ -246,6 +246,85 @@ fn detect_support(wmi: Option<&Wmi>, dev: Option<&Device>, info: Option<&Machine
     s
 }
 
+/// Thẻ có nút bấm (kind 3): `label` là chữ trên nút, `enabled` là bấm được. Bấm thì gửi `toggle(id, true)`.
+fn button(
+    id: impl Into<String>,
+    icon: &'static str,
+    title: impl Into<String>,
+    message: impl Into<String>,
+    label: impl Into<String>,
+    enabled: bool,
+) -> ItemSnap {
+    ItemSnap {
+        id: id.into(),
+        icon,
+        title: title.into(),
+        message: message.into(),
+        hint: "",
+        kind: 3,
+        options: Vec::new(),
+        value: label.into(),
+        on: enabled,
+    }
+}
+
+/// Thẻ chỉ hiện chữ (kind 4), dùng cho mục Thông tin.
+fn info(id: &str, icon: &'static str, title: impl Into<String>, message: impl Into<String>, value: impl Into<String>) -> ItemSnap {
+    ItemSnap {
+        id: id.into(),
+        icon,
+        title: title.into(),
+        message: message.into(),
+        hint: "",
+        kind: 4,
+        options: Vec::new(),
+        value: value.into(),
+        on: false,
+    }
+}
+
+/// Mục Thông tin trong Cài đặt: phiên bản, người viết lại bằng Rust, mã nguồn và ghi công tác giả gốc.
+fn build_about(lang: Lang) -> Vec<ItemSnap> {
+    vec![
+        info(
+            "about-app",
+            "\u{E946}",
+            lenovo_toolkit::APP_NAME,
+            tr(lang, "Rewritten in Rust by erikpuw.", "Viết lại bằng Rust bởi erikpuw."),
+            format!("v{}", lenovo_toolkit::APP_VERSION),
+        ),
+        info(
+            "about-source",
+            "\u{E943}",
+            tr(lang, "Source code", "Mã nguồn"),
+            "github.com/erikpuw/lenovo-toolkit",
+            "GPL-3.0",
+        ),
+        info(
+            "about-credits",
+            "\u{E734}",
+            tr(lang, "Based on LenovoLegionToolkit", "Dựa trên LenovoLegionToolkit"),
+            tr(
+                lang,
+                "Created by Bartosz Cichecki and developed further by the LenovoLegionToolkit-Team, both under GPL-3.0. Thanks to the authors.",
+                "Do Bartosz Cichecki tạo ra và nhóm LenovoLegionToolkit-Team tiếp tục phát triển, cả hai theo GPL-3.0. Xin cảm ơn các tác giả.",
+            ),
+            "",
+        ),
+        info(
+            "about-notice",
+            "\u{E7BA}",
+            tr(lang, "Unofficial", "Không chính thức"),
+            tr(
+                lang,
+                "Not affiliated with Lenovo. The app writes to firmware, use it at your own risk.",
+                "Không liên kết với Lenovo. Ứng dụng ghi xuống firmware, hãy tự chịu rủi ro khi dùng.",
+            ),
+            "",
+        ),
+    ]
+}
+
 fn toggle(id: impl Into<String>, icon: &'static str, title: impl Into<String>, message: impl Into<String>, on: bool) -> ItemSnap {
     ItemSnap {
         id: id.into(),
@@ -301,7 +380,7 @@ fn build_settings(
     legion_zone: Option<Status>,
     legion_space: Option<Status>,
     hotkeys: Option<Status>,
-) -> [Vec<ItemSnap>; 5] {
+) -> [Vec<ItemSnap>; 6] {
     let app = vec![
         combo(
             "lang",
@@ -531,7 +610,7 @@ fn build_settings(
             smartkeys.push(item);
         }
     }
-    [app, power_settings, smartkeys, software, notify_items]
+    [app, power_settings, smartkeys, software, notify_items, build_about(lang)]
 }
 
 /// Dựng 4 nhóm điều khiển (Power, Graphics, Display, Other) theo luồng dọc từ trên xuống.
@@ -647,36 +726,28 @@ fn build_groups(
             );
             graphics.push(gm);
         }
-        let active_str = tr(lang, "Active", "Đang hoạt động");
-        let deact_str = tr(lang, "Deactivate", "Ngắt card rời");
-        let off_str = tr(lang, "Powered Off", "Đã tắt nguồn");
-        let reading_str = tr(lang, "Reading...", "Đang đọc thông tin...");
+        // Như DiscreteGPUControl của bản gốc: dòng trạng thái và nút "Ngắt kích hoạt", nút chỉ bấm được khi card đang chạy.
         let dgpu_state = if loading {
-            reading_str
+            tr(lang, "Reading...", "Đang đọc thông tin...")
         } else if dgpu_awake {
-            active_str
+            tr(lang, "Status: Active", "Trạng thái: Đang hoạt động")
         } else {
-            off_str
+            tr(lang, "Status: Powered off", "Trạng thái: Đã tắt nguồn")
         };
-        let dgpu_opts = if loading {
-            vec![reading_str.to_string()]
-        } else if dgpu_awake {
-            vec![active_str.to_string(), deact_str.to_string()]
-        } else {
-            vec![off_str.to_string()]
-        };
-        graphics.push(combo(
+        let mut dgpu = button(
             "dgpu",
             "\u{E950}",
             tr(lang, "Discrete GPU", "Card đồ họa rời (dGPU)"),
             tr(
                 lang,
                 "Disable discrete GPU, if it is active unnecessarily.",
-                "Trạng thái nguồn của card đồ họa rời. Chọn \"Ngắt card rời\" khi không dùng.",
+                "Ngắt card đồ họa rời khi nó đang chạy mà không cần dùng.",
             ),
-            dgpu_opts,
-            dgpu_state.to_string(),
-        ));
+            tr(lang, "Deactivate", "Ngắt kích hoạt"),
+            dgpu_awake && !loading,
+        );
+        dgpu.hint = dgpu_state;
+        graphics.push(dgpu);
         if sup.gpu_oc {
             graphics.push(toggle(
                 "gpu-oc",
@@ -1525,13 +1596,6 @@ impl Worker {
                 let w = self.ensure_wmi().ok_or("WMI unavailable")?;
                 gamezone::hybrid_set(w, gsync, igpu, mode).map_err(explain)
             }
-            "dgpu" => {
-                if value == "Deactivate" || value == "Ngắt card rời" {
-                    let w = self.ensure_wmi().ok_or("WMI unavailable")?;
-                    gamezone::deactivate_dgpu(w).map_err(explain)?;
-                }
-                Ok(())
-            }
             "batterymode" => {
                 let state: BatteryState = parse_battery_label(value).ok_or_else(bad)?;
                 battery::set(self.dev()?, state).map(drop).map_err(explain)
@@ -1567,6 +1631,10 @@ impl Worker {
             "min-to-tray" => settings::set_flag(settings::MINIMIZE_TO_TRAY, on).map_err(|e| e.to_string()),
             "min-on-close" => settings::set_flag(settings::MINIMIZE_ON_CLOSE, on).map_err(|e| e.to_string()),
             "notify-all" => settings::set_flag(settings::NOTIFY_ALL, on).map_err(|e| e.to_string()),
+            "dgpu" => {
+                let w = self.ensure_wmi().ok_or("WMI unavailable")?;
+                gamezone::deactivate_dgpu(w).map_err(explain)
+            }
             "notify-power" => settings::set_flag(settings::NOTIFY_POWER, on).map_err(|e| e.to_string()),
             "notify-fnlock" => settings::set_flag(settings::NOTIFY_FNLOCK, on).map_err(|e| e.to_string()),
             "notify-mic" => settings::set_flag(settings::NOTIFY_MIC, on).map_err(|e| e.to_string()),
@@ -2046,7 +2114,8 @@ fn push(ui: &AppWindow, s: Snapshot) {
             nets: to_sub_items(d.nets),
         });
     }
-    if let Some([app, power_settings, smartkeys, software, notify_items]) = s.settings_items {
+    if let Some([app, power_settings, smartkeys, software, notify_items, about]) = s.settings_items {
+        ui.set_settings_about_items(to_items(about));
         ui.set_settings_notify_items(to_items(notify_items));
         ui.set_settings_app_items(to_items(app));
         ui.set_settings_power_items(to_items(power_settings));

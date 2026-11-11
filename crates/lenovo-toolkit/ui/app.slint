@@ -20,7 +20,8 @@ global Palette {
     out property <color> bar-fill: #38bdf8;
 }
 
-// kind: 0 = danh sách chọn, 1 = công tắc, 2 = danh sách chọn + nút bánh răng (AI Engine / Custom Mode)
+// kind: 0 = danh sách chọn, 1 = công tắc, 2 = danh sách chọn + nút bánh răng (AI Engine / Custom Mode),
+//       3 = nút bấm (`value` là nhãn, `on` là bấm được), 4 = chỉ hiện chữ `value` (mục Thông tin)
 export struct Item { id: string, icon: string, title: string, message: string, hint: string, kind: int, options: [string], value: string, on: bool }
 export struct SensorRow { label: string, value: string, fraction: float }
 export struct SectionData { title: string, subtitle: string, rows: [SensorRow] }
@@ -173,6 +174,28 @@ component GearButton inherits Rectangle {
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
+/// Nút trong thẻ cài đặt (ví dụ "Ngắt kích hoạt" của card rời); mờ và không bấm được khi `enabled` tắt.
+component CardButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    height: 34px;
+    min-width: 120px;
+    border-radius: 6px;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.enabled && ta.has-hover ? #6bd0ff : Palette.accent;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        Text { text: root.label; color: #0f172a; font-size: 13px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
 component SettingCard inherits Rectangle {
     in property <string> glyph;
     in property <string> title;
@@ -237,10 +260,22 @@ component Group inherits VerticalLayout {
             spacing: 8px;
             alignment: end;
             if item.kind == 2 : GearButton { clicked => { root.gear(); } }
-            if item.kind != 1 : Dropdown {
+            if item.kind == 0 || item.kind == 2 : Dropdown {
                 options: item.options;
                 value: item.value;
                 selected(v) => { root.combo(item.id, v); }
+            }
+            if item.kind == 3 : CardButton {
+                label: item.value;
+                enabled: item.on;
+                clicked => { root.toggle(item.id, true); }
+            }
+            if item.kind == 4 : Text {
+                text: item.value;
+                color: Palette.subtext;
+                font-size: 13px;
+                font-weight: 600;
+                vertical-alignment: center;
             }
             if item.kind == 1 : Toggle {
                 checked: item.on;
@@ -548,6 +583,7 @@ component SettingsPage inherits Rectangle {
     in property <[Item]> smartkey-items;
     in property <[Item]> software-items;
     in property <[Item]> notify-items;
+    in property <[Item]> about-items;
     callback combo(string, string);
     callback toggle(string, bool);
 
@@ -576,6 +612,7 @@ component SettingsPage inherits Rectangle {
                 SubNavItem { glyph: "\u{E765}"; label: root.vi ? "Phím tắt (Smart Keys)" : "Smart Keys"; selected: root.section == 2; clicked => { root.section = 2; } }
                 SubNavItem { glyph: "\u{EA18}"; label: root.vi ? "Kiểm soát phần mềm" : "Software Control"; selected: root.section == 3; clicked => { root.section = 3; } }
                 SubNavItem { glyph: "\u{EA8F}"; label: root.vi ? "Thông báo" : "Notifications"; selected: root.section == 4; clicked => { root.section = 4; } }
+                SubNavItem { glyph: "\u{E946}"; label: root.vi ? "Thông tin" : "About"; selected: root.section == 5; clicked => { root.section = 5; } }
             }
             Flickable {
                 horizontal-stretch: 1;
@@ -614,6 +651,10 @@ component SettingsPage inherits Rectangle {
                         combo(i, v) => { root.combo(i, v); }
                         toggle(i, o) => { root.toggle(i, o); }
                     }
+                    if root.section == 5 : Group {
+                        title: "";
+                        items: root.about-items;
+                    }
                 }
             }
         }
@@ -648,6 +689,7 @@ export component AppWindow inherits Window {
     in property <[Item]> settings-smartkey-items;
     in property <[Item]> settings-software-items;
     in property <[Item]> settings-notify-items;
+    in property <[Item]> settings-about-items;
 
     in property <string> battery-percent;
     in property <string> battery-status;
@@ -756,6 +798,7 @@ export component AppWindow inherits Window {
                     smartkey-items: root.settings-smartkey-items;
                     software-items: root.settings-software-items;
                     notify-items: root.settings-notify-items;
+                    about-items: root.settings-about-items;
                     combo(i, v) => { root.combo(i, v); }
                     toggle(i, o) => { root.toggle(i, o); }
                 }

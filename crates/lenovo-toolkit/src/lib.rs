@@ -39,7 +39,7 @@ pub const APP_NAME: &str = "Lenovo Toolkit";
 /// Lấy từ `Cargo.toml` (một nguồn duy nhất, cũng được nhúng vào thông tin phiên bản của file .exe).
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Tên hiển thị kèm phiên bản, ví dụ "Lenovo Toolkit v1.0.1" (tiêu đề cửa sổ, khay hệ thống).
+/// Tên hiển thị kèm phiên bản, ví dụ "Lenovo Toolkit v1.0.2" (tiêu đề cửa sổ, khay hệ thống).
 pub fn app_title() -> String {
     format!("{APP_NAME} v{APP_VERSION}")
 }
@@ -152,8 +152,8 @@ mod app_info_tests {
 
     #[test]
     fn title_has_name_and_version() {
-        assert_eq!(APP_VERSION, "1.0.1");
-        assert_eq!(app_title(), "Lenovo Toolkit v1.0.1");
+        assert_eq!(APP_VERSION, "1.0.2");
+        assert_eq!(app_title(), "Lenovo Toolkit v1.0.2");
     }
 }
 
