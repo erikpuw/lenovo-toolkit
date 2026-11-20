@@ -11,7 +11,8 @@ use lenovo_toolkit_core::battery::{BatteryDetail, BatteryState};
 use lenovo_toolkit_core::energy::AlwaysOnUsb;
 use lenovo_toolkit_core::events::SpecialKey;
 use lenovo_toolkit_core::gamezone::HybridMode;
-use lenovo_toolkit_core::power::PowerMode;
+use lenovo_toolkit_core::its::ItsMode;
+use lenovo_toolkit_core::power::{PowerMode, WinPowerMode};
 use lenovo_toolkit_core::settings::{self, Lang, PowerSyncMode};
 use tray::Toast;
 
@@ -42,18 +43,6 @@ pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Tên hiển thị kèm phiên bản, ví dụ "Lenovo Toolkit v1.0.2" (tiêu đề cửa sổ, khay hệ thống).
 pub fn app_title() -> String {
     format!("{APP_NAME} v{APP_VERSION}")
-}
-
-/// Thông báo cho máy không thuộc nhóm gaming (ThinkBook, IdeaPad, Slim, Yoga...): các điều khiển ghi bị ẩn.
-pub fn unsupported_notice(lang: Lang, model: &str) -> String {
-    match lang {
-        Lang::En => format!(
-            "{model}: this device uses ITS (Intelligent Thermal Solution) instead of Legion power modes, which {APP_NAME} does not support yet. Controls that write to hardware are hidden; sensors stay read-only. {APP_NAME} supports Legion, LOQ and IdeaPad Gaming."
-        ),
-        Lang::Vi => format!(
-            "{model}: thiết bị này dùng ITS (Intelligent Thermal Solution) thay cho chế độ nguồn của Legion nên {APP_NAME} chưa hỗ trợ. Các điều khiển ghi xuống phần cứng được ẩn, cảm biến chỉ để xem. {APP_NAME} hỗ trợ Legion, LOQ và IdeaPad Gaming."
-        ),
-    }
 }
 
 fn on_off(on: bool, lang: Lang) -> &'static str {
@@ -143,12 +132,16 @@ mod app_info_tests {
     }
 
     #[test]
-    fn unsupported_notice_names_the_device_and_scope() {
-        let n = unsupported_notice(Lang::En, "ThinkBook 16");
-        assert!(n.contains("ThinkBook 16") && n.contains("ITS") && n.contains("Legion, LOQ"));
-        assert!(unsupported_notice(Lang::Vi, "X").contains("chưa hỗ trợ"));
+    fn its_and_win_power_labels_round_trip() {
+        for m in [ItsMode::Auto, ItsMode::Cool, ItsMode::Performance, ItsMode::Geek] {
+            assert_eq!(parse_its_label(its_label_tr(m, Lang::En)), Some(m));
+            assert_eq!(parse_its_label(its_label_tr(m, Lang::Vi)), Some(m));
+        }
+        for m in WinPowerMode::ALL {
+            assert_eq!(parse_win_power_label(win_power_label_tr(m, Lang::En)), Some(m));
+            assert_eq!(parse_win_power_label(win_power_label_tr(m, Lang::Vi)), Some(m));
+        }
     }
-
 
     #[test]
     fn title_has_name_and_version() {
@@ -187,6 +180,42 @@ pub fn parse_power_label(s: &str) -> Option<PowerMode> {
     [PowerMode::Quiet, PowerMode::Balance, PowerMode::Performance, PowerMode::Extreme, PowerMode::GodMode]
         .into_iter()
         .find(|m| power_label_tr(*m, Lang::En) == s || power_label_tr(*m, Lang::Vi) == s)
+}
+
+pub fn its_label_tr(m: ItsMode, lang: Lang) -> &'static str {
+    match m {
+        ItsMode::Auto => tr(lang, "Intelligent Cooling", "Làm mát thông minh (Auto)"),
+        ItsMode::Cool => tr(lang, "Battery Saving", "Tiết kiệm pin (Cool)"),
+        ItsMode::Performance => tr(lang, "Extreme Performance", "Hiệu năng cao (Performance)"),
+        ItsMode::Geek => tr(lang, "Geek Mode (Full Speed)", "Chế độ Geek (Quạt tối đa)"),
+    }
+}
+
+pub fn parse_its_label(s: &str) -> Option<ItsMode> {
+    [ItsMode::Auto, ItsMode::Cool, ItsMode::Performance, ItsMode::Geek]
+        .into_iter()
+        .find(|m| its_label_tr(*m, Lang::En) == s || its_label_tr(*m, Lang::Vi) == s)
+}
+
+pub fn win_power_label_tr(m: WinPowerMode, lang: Lang) -> &'static str {
+    match m {
+        WinPowerMode::BestPowerEfficiency => tr(lang, "Best Power Efficiency", "Tiết kiệm năng lượng"),
+        WinPowerMode::Balanced => tr(lang, "Balanced", "Cân bằng"),
+        WinPowerMode::BestPerformance => tr(lang, "Best Performance", "Hiệu năng tối đa"),
+    }
+}
+
+pub fn win_power_options(lang: Lang) -> Vec<String> {
+    WinPowerMode::ALL
+        .into_iter()
+        .map(|m| win_power_label_tr(m, lang).to_string())
+        .collect()
+}
+
+pub fn parse_win_power_label(s: &str) -> Option<WinPowerMode> {
+    WinPowerMode::ALL
+        .into_iter()
+        .find(|m| win_power_label_tr(*m, Lang::En) == s || win_power_label_tr(*m, Lang::Vi) == s)
 }
 
 pub const BATTERY_LABELS: [(BatteryState, &str); 3] = [

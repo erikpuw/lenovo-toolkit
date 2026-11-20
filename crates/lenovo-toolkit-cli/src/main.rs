@@ -9,10 +9,12 @@ use lenovo_toolkit_core::{
     events::{EventListener, Source},
     fan,
     gamezone::{self, Feature},
+    its::{self, ItsMode},
     keys::KeyListener,
     lighting::{self, Light},
     wmi_util::Wmi,
-    power::{self, PowerMode},
+    power::{self, PowerMode, WinPowerMode},
+    sysstat,
     threshold::{self, ChargeThreshold},
 };
 
@@ -21,6 +23,8 @@ const USAGE: &str = "dùng:
   lenovo-toolkit-cli battery set <normal|rapid|conservation>   (cần admin)
   lenovo-toolkit-cli power get
   lenovo-toolkit-cli power set <quiet|balance|performance|extreme|godmode>
+  lenovo-toolkit-cli its <get|supported|set <auto|cool|performance|geek>>   (ThinkBook/IdeaPad/Yoga/Slim qua EnergyDrv)
+  lenovo-toolkit-cli winpower <get|set <efficiency|balanced|performance>>   (ThinkPad / Windows Power Mode)
   lenovo-toolkit-cli gamezone <winkey|gsync|overdrive|touchpad|igpu> <get|supported|set <n>>
   lenovo-toolkit-cli <fnlock|nightcharge|onelevel> <get|set <on|off>>
   lenovo-toolkit-cli fan <sensors|max|fullspeed <get|set <on|off>>>   (cần admin: WMI)
@@ -67,17 +71,37 @@ fn parse_onoff(s: &str) -> Result<bool, &'static str> {
     }
 }
 
+fn parse_its(s: &str) -> Option<ItsMode> {
+    match s {
+        "auto" => Some(ItsMode::Auto),
+        "cool" => Some(ItsMode::Cool),
+        "performance" => Some(ItsMode::Performance),
+        "geek" => Some(ItsMode::Geek),
+        _ => None,
+    }
+}
+
+fn parse_win_power(s: &str) -> Option<WinPowerMode> {
+    match s {
+        "efficiency" => Some(WinPowerMode::BestPowerEfficiency),
+        "balanced" => Some(WinPowerMode::Balanced),
+        "performance" => Some(WinPowerMode::BestPerformance),
+        _ => None,
+    }
+}
+
 fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    // Máy không thuộc nhóm gaming (ITS: ThinkBook, IdeaPad, Slim, Yoga...) chưa được hỗ trợ: không ghi phần cứng.
-    // `software ...` (chặn phần mềm Lenovo) không phải ghi phần cứng nên không bị chặn.
+    // Chỉ chặn các lệnh ghi WMI riêng của nhóm Gaming (power/gamezone/fan/light/ai) trên máy NonGaming/ThinkPad.
+    // Các lệnh chính hãng qua EnergyDrv (its, battery, usb, kbd, fnlock, nightcharge), IBMPmDrv (threshold) và winpower được phép chạy an toàn.
     let writes = a.iter().any(|t| matches!(*t, "set" | "off" | "disable" | "enable" | "refresh"));
-    if writes && a.first() != Some(&"software") {
+    let gaming_only = matches!(a.first().copied(), Some("power" | "gamezone" | "fan" | "light" | "ai"));
+    if writes && gaming_only {
         let info = compat::detect()?;
-        if info.class() == compat::DeviceClass::NonGaming {
+        if info.class() != compat::DeviceClass::Gaming {
             return Err(format!(
-                "{}: thiết bị dùng ITS, không thuộc nhóm gaming nên chưa hỗ trợ ghi phần cứng. Hỗ trợ: Legion, LOQ, IdeaPad Gaming.",
+                "{}: lệnh này chỉ dùng cho dòng Gaming (Legion/LOQ/IdeaPad Gaming). Hãy dùng `its` hoặc `winpower` cho máy này.",
                 info.model
             )
             .into());
@@ -85,6 +109,23 @@ fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match a.as_slice() {
+        ["its", "supported"] => println!("{}", its::is_supported(&battery::open()?)),
+        ["its", "get"] => {
+            let ac = sysstat::battery().is_ok_and(|b| b.ac_online);
+            println!("{:?}", its::get(&battery::open()?, false, ac)?);
+        }
+        ["its", "set", s] => {
+            let mode = parse_its(s).ok_or(USAGE)?;
+            let ac = sysstat::battery().is_ok_and(|b| b.ac_online);
+            its::set(&battery::open()?, mode, ac)?;
+            println!("{mode:?}");
+        }
+        ["winpower", "get"] => println!("{:?}", power::get_windows_power_mode()?),
+        ["winpower", "set", s] => {
+            let mode = parse_win_power(s).ok_or(USAGE)?;
+            power::set_windows_power_mode(mode)?;
+            println!("{mode:?}");
+        }
         ["battery", "get"] => println!("{:?}", battery::get(&battery::open()?)?),
         ["battery", "set", s] => {
             let state = parse_state(s).ok_or(USAGE)?;

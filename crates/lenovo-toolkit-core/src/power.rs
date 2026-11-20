@@ -176,30 +176,98 @@ pub fn god_mode_fnq_set(w: &Wmi, on: bool) -> io::Result<()> {
     Ok(())
 }
 
-/// Đồng bộ Windows Power Mode overlay (`powrprof.dll::PowerSetActiveOverlayScheme`) theo chế độ nguồn.
-pub fn sync_windows_power_mode(mode: PowerMode) {
-    use crate::settings::{self, PowerSyncMode};
+/// Chế độ nguồn chuẩn Windows (`powrprof.dll` Overlay Scheme) — dùng cho ThinkPad (`IBMPmDrv` / `LITSSVC`)
+/// và các dòng Lenovo không mở WMI/DYTC để điều chỉnh hiệu năng và biểu đồ quạt an toàn qua firmware chính hãng.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WinPowerMode {
+    BestPowerEfficiency,
+    Balanced,
+    BestPerformance,
+}
+
+impl WinPowerMode {
+    pub const ALL: [Self; 3] = [Self::BestPowerEfficiency, Self::Balanced, Self::BestPerformance];
+
+    const GUID_EFFICIENCY: u128 = 0x961c_c777_2547_4f9d_8174_7d86_181b_8a7a;
+    const GUID_PERFORMANCE: u128 = 0xded5_74b5_45a0_4f42_8737_4634_5c09_c238;
+
+    fn to_guid(self) -> windows::core::GUID {
+        use windows::core::GUID;
+        match self {
+            Self::BestPowerEfficiency => GUID::from_u128(Self::GUID_EFFICIENCY),
+            Self::Balanced => GUID::zeroed(),
+            Self::BestPerformance => GUID::from_u128(Self::GUID_PERFORMANCE),
+        }
+    }
+
+    fn from_guid(g: windows::core::GUID) -> Self {
+        let u = g.to_u128();
+        if u == Self::GUID_EFFICIENCY {
+            Self::BestPowerEfficiency
+        } else if u == Self::GUID_PERFORMANCE {
+            Self::BestPerformance
+        } else {
+            Self::Balanced
+        }
+    }
+}
+
+/// Đọc Windows Power Mode hiện tại qua `powrprof.dll::PowerGetActiveOverlayScheme`.
+pub fn get_windows_power_mode() -> io::Result<WinPowerMode> {
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::core::{GUID, s, w};
 
-    if settings::power_sync_mode() != PowerSyncMode::WindowsPowerMode {
-        return;
-    }
-    let guid = match mode {
-        PowerMode::Quiet => GUID::from_u128(0x961cc777_2547_4f9d_8174_7d86181b8a7a),
-        PowerMode::Balance => GUID::zeroed(),
-        PowerMode::Performance | PowerMode::Extreme | PowerMode::GodMode => {
-            GUID::from_u128(0xded574b5_45a0_4f42_8737_46345c09c238)
-        }
-    };
     unsafe {
-        if let Ok(dll) = LoadLibraryW(w!("powrprof.dll"))
-            && let Some(proc) = GetProcAddress(dll, s!("PowerSetActiveOverlayScheme"))
-        {
-            let set_overlay: unsafe extern "system" fn(*const GUID) -> u32 = std::mem::transmute(proc);
-            let _ = set_overlay(&guid);
+        let dll = LoadLibraryW(w!("powrprof.dll"))
+            .map_err(|e| io::Error::other(format!("không nạp được powrprof.dll: {e}")))?;
+        let proc = GetProcAddress(dll, s!("PowerGetActiveOverlayScheme"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "thiếu PowerGetActiveOverlayScheme"))?;
+        let get_overlay: unsafe extern "system" fn(*mut GUID) -> u32 = std::mem::transmute(proc);
+        let mut guid = GUID::zeroed();
+        let rc = get_overlay(&mut guid);
+        if rc != 0 {
+            return Err(io::Error::other(format!("PowerGetActiveOverlayScheme lỗi {rc}")));
         }
+        Ok(WinPowerMode::from_guid(guid))
     }
+}
+
+/// Đặt Windows Power Mode qua `powrprof.dll::PowerSetActiveOverlayScheme`.
+pub fn set_windows_power_mode(mode: WinPowerMode) -> io::Result<()> {
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows::core::{GUID, s, w};
+
+    let guid = mode.to_guid();
+    unsafe {
+        let dll = LoadLibraryW(w!("powrprof.dll"))
+            .map_err(|e| io::Error::other(format!("không nạp được powrprof.dll: {e}")))?;
+        let proc = GetProcAddress(dll, s!("PowerSetActiveOverlayScheme"))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Unsupported, "thiếu PowerSetActiveOverlayScheme"))?;
+        let set_overlay: unsafe extern "system" fn(*const GUID) -> u32 = std::mem::transmute(proc);
+        let rc = set_overlay(&guid);
+        if rc != 0 {
+            return Err(io::Error::other(format!("PowerSetActiveOverlayScheme lỗi {rc}")));
+        }
+        Ok(())
+    }
+}
+
+/// Đồng bộ Windows Power Mode overlay nếu người dùng đang bật Power Mode Synchronization.
+pub fn sync_windows_power_mode_overlay(mode: WinPowerMode) {
+    use crate::settings::{self, PowerSyncMode};
+    if settings::power_sync_mode() == PowerSyncMode::WindowsPowerMode {
+        let _ = set_windows_power_mode(mode);
+    }
+}
+
+/// Đồng bộ Windows Power Mode overlay (`powrprof.dll::PowerSetActiveOverlayScheme`) theo chế độ nguồn.
+pub fn sync_windows_power_mode(mode: PowerMode) {
+    let target = match mode {
+        PowerMode::Quiet => WinPowerMode::BestPowerEfficiency,
+        PowerMode::Balance => WinPowerMode::Balanced,
+        PowerMode::Performance | PowerMode::Extreme | PowerMode::GodMode => WinPowerMode::BestPerformance,
+    };
+    sync_windows_power_mode_overlay(target);
 }
 
 #[cfg(test)]

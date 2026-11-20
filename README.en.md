@@ -4,7 +4,7 @@
 
 <h1 align="center">Lenovo Toolkit</h1>
 
-<p align="center"><b>A small Windows app for Lenovo Legion, LOQ and IdeaPad Gaming laptops.</b></p>
+<p align="center"><b>A small Windows app for Lenovo laptops (Legion, LOQ, IdeaPad, Yoga, ThinkBook, ThinkPad).</b></p>
 
 <p align="center">
   Power modes, fans and sensors, battery, lights and Fn keys in one light window that lives in the tray.<br>
@@ -35,10 +35,11 @@
 
 | Group | Lines | Status |
 |---|---|---|
-| Gaming | Legion, LOQ, IdeaPad Gaming | Everything above |
-| Not gaming | ThinkBook, IdeaPad, Slim, Yoga, XiaoXin, Motobook | Not supported. These laptops use Intelligent Thermal Solution (Auto, Cool, Performance, Geek) instead of the Legion power modes. The app only reads sensors there, hides every control that writes to hardware and leaves the Lenovo software alone. |
+| Gaming | Legion, LOQ, IdeaPad Gaming | Full feature set through Lenovo WMI and `EnergyDrv`. |
+| Non-gaming (ITS) | ThinkBook, IdeaPad, Slim, Yoga, XiaoXin, Motobook, Lenovo V | ITS thermal and fan modes (`Auto`, `Cool`, `Performance`, and `Geek` when advertised by firmware) through Lenovo's signed `EnergyDrv`, plus battery mode, overnight charge, always-on USB, keyboard backlight, Fn lock and refresh rate. Falls back to Windows Power Mode if DYTC is absent. |
+| ThinkPad | ThinkPad (T, X, P, L, E, Z, X1) | Windows Power Mode synced with Lenovo `IBMPmDrv` / thermal service, battery charge threshold through `IBMPmDrv`, refresh rate and battery/system telemetry. Uses official Lenovo drivers only and never writes raw EC registers. |
 
-The group comes from the model name. It has only been tested on a Legion Y7000 IRX9.
+The group comes from the model name. Gaming-only controls stay hidden on non-gaming laptops and ThinkPads.
 
 ## Install
 
@@ -65,6 +66,8 @@ lenovo-toolkit-cli battery get
 lenovo-toolkit-cli battery set <normal|rapid|conservation>
 lenovo-toolkit-cli power get
 lenovo-toolkit-cli power set <quiet|balance|performance|extreme|godmode>
+lenovo-toolkit-cli its <get|supported|set <auto|cool|performance|geek>>
+lenovo-toolkit-cli winpower <get|set <efficiency|balanced|performance>>
 lenovo-toolkit-cli gamezone <winkey|gsync|overdrive|touchpad|igpu> <get|supported|set <n>>
 lenovo-toolkit-cli <fnlock|nightcharge|onelevel> <get|set <on|off>>
 lenovo-toolkit-cli fan <sensors|max|fullspeed <get|set <on|off>>>

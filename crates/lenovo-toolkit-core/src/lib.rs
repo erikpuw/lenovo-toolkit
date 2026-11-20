@@ -12,6 +12,7 @@ pub mod events;
 pub mod fan;
 pub mod gamezone;
 pub mod games;
+pub mod its;
 pub mod keys;
 pub mod lighting;
 pub mod power;

@@ -33,8 +33,15 @@ const ALLOWED_MODELS_PREFIX: &[&str] = &[
     "G5000", "R9000", "R7000", "Y9000", "Y7000",
     // Limited compatibility
     "17IR", "15IR", "15IC", "15IK",
-    // ThinkBooks
+    // ThinkBooks, ThinkPads & other Lenovo laptops
     "ThinkBook",
+    "ThinkPad",
+    "IdeaPad",
+    "XiaoXin",
+    "YOGA",
+    "Lenovo Slim",
+    "Lenovo V",
+    "Motobook",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +61,8 @@ pub enum LegionSeries {
     Yoga = 12,
     ThinkBook = 13,
     Motorola = 14,
+    ThinkPad = 15,
+    LenovoV = 16,
     Unknown = 255,
 }
 
@@ -75,6 +84,8 @@ impl LegionSeries {
             Self::Yoga => "Yoga",
             Self::ThinkBook => "ThinkBook",
             Self::Motorola => "Motorola",
+            Self::ThinkPad => "ThinkPad",
+            Self::LenovoV => "Lenovo V",
             Self::Unknown => "",
         }
     }
@@ -93,7 +104,7 @@ const MACHINE_TYPES: [(LegionSeries, &[&str]); 7] = [
     (S::LegionGo, &["83E1"]),
 ];
 
-const MODEL_KEYWORDS: [(&str, LegionSeries); 10] = [
+const MODEL_KEYWORDS: [(&str, LegionSeries); 12] = [
     ("LOQ", S::Loq),
     ("IdeaPad Gaming", S::IdeaPadGaming),
     ("IdeaPad", S::IdeaPad),
@@ -101,6 +112,8 @@ const MODEL_KEYWORDS: [(&str, LegionSeries); 10] = [
     ("YOGA", S::Yoga),
     ("Lenovo Slim", S::LenovoSlim),
     ("ThinkBook", S::ThinkBook),
+    ("ThinkPad", S::ThinkPad),
+    ("Lenovo V", S::LenovoV),
     ("Legion", S::LegionLegacy),
     ("Motorola", S::Motorola),
     ("Motobook", S::Motorola),
@@ -236,23 +249,36 @@ pub fn supports_its_mode(model: &str) -> bool {
     if contains_ci(model, "IdeaPad Gaming") {
         return false;
     }
-    ["IdeaPad", "ThinkBook", "Lenovo Slim", "Motobook", "XiaoXin", "YOGA"]
+    ["IdeaPad", "ThinkBook", "Lenovo Slim", "Lenovo V", "Motobook", "XiaoXin", "YOGA"]
         .iter()
         .any(|k| contains_ci(model, k))
 }
 
-/// Nhóm thiết bị quyết định bộ điều khiển nào dùng được.
+pub fn is_thinkpad(model: &str) -> bool {
+    contains_ci(model, "ThinkPad")
+}
+
+/// Nhóm thiết bị quyết định bộ điều khiển nào dùng được (100% qua driver chính hãng Lenovo).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceClass {
     /// Legion, LOQ, IdeaPad Gaming: chế độ nguồn WMI SmartFan, quạt WMI, Custom Mode (Quiet..Custom).
     Gaming,
-    /// ThinkBook, IdeaPad, Slim, Yoga, XiaoXin, Motobook: dùng ITS (Intelligent Thermal Solution) qua
-    /// driver với các chế độ khác (Auto/Cool/Performance/Geek); chưa được hỗ trợ ở phiên bản này.
+    /// ThinkBook, IdeaPad, Slim, Yoga, XiaoXin, Motobook, Lenovo V: dùng ITS (DYTC) qua `\\.\EnergyDrv`
+    /// (`Auto / Cool / Performance / Geek`) hoặc Windows Power Mode nếu firmware không mở DYTC.
     NonGaming,
+    /// ThinkPad (T/X/P/L/E/Z/X1): dùng `\\.\IBMPmDrv` (ngưỡng sạc pin) + Windows Power Mode
+    /// (đồng bộ trực tiếp vào `IBMPmDrv` / `LITSSVC` chính hãng của Lenovo).
+    ThinkPad,
 }
 
 pub fn device_class(model: &str) -> DeviceClass {
-    if supports_its_mode(model) { DeviceClass::NonGaming } else { DeviceClass::Gaming }
+    if is_thinkpad(model) {
+        DeviceClass::ThinkPad
+    } else if supports_its_mode(model) {
+        DeviceClass::NonGaming
+    } else {
+        DeviceClass::Gaming
+    }
 }
 
 impl MachineInfo {
@@ -555,6 +581,8 @@ mod tests {
         assert_eq!(legion_series("LOQ 15IRH8", "82XV"), LegionSeries::Loq);
         assert_eq!(legion_series("IdeaPad Gaming 3", "82K1"), LegionSeries::IdeaPadGaming);
         assert_eq!(legion_series("IdeaPad 5", "xxxx"), LegionSeries::IdeaPad);
+        assert_eq!(legion_series("ThinkPad X1 Carbon Gen 11", "21HM"), LegionSeries::ThinkPad);
+        assert_eq!(legion_series("Lenovo V15 G4", "83A1"), LegionSeries::LenovoV);
         assert_eq!(legion_series("Foo", "xxxx"), LegionSeries::Unknown);
     }
 
@@ -568,6 +596,7 @@ mod tests {
         assert!(supports_its_mode("ThinkBook 16"));
         assert!(!supports_its_mode("IdeaPad Gaming 3"));
         assert!(!supports_its_mode("Legion 5"));
+        assert!(!supports_its_mode("ThinkPad T14"));
     }
 
     #[test]
@@ -575,8 +604,19 @@ mod tests {
         for m in ["Legion Y7000 IRX9", "LOQ 15IRX9", "Legion Pro 5 16IRX9", "IdeaPad Gaming 3 15ACH6"] {
             assert_eq!(device_class(m), DeviceClass::Gaming, "{m}");
         }
-        for m in ["ThinkBook 16 G6", "IdeaPad Slim 5", "Lenovo Slim 7", "Yoga Pro 9", "XiaoXin Pro 16", "Motobook 60"] {
+        for m in [
+            "ThinkBook 16 G6",
+            "IdeaPad Slim 5",
+            "Lenovo Slim 7",
+            "Yoga Pro 9",
+            "XiaoXin Pro 16",
+            "Motobook 60",
+            "Lenovo V15 G4",
+        ] {
             assert_eq!(device_class(m), DeviceClass::NonGaming, "{m}");
+        }
+        for m in ["ThinkPad X1 Carbon Gen 11", "ThinkPad T14s Gen 4", "ThinkPad P16"] {
+            assert_eq!(device_class(m), DeviceClass::ThinkPad, "{m}");
         }
     }
 

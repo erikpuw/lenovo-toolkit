@@ -23,19 +23,22 @@ use lenovo_toolkit_core::events::{EventListener, Source, SpecialKey, UtilityEven
 use lenovo_toolkit_core::keys::{Key, KeyListener};
 use lenovo_toolkit_core::fan::{self, Profile};
 use lenovo_toolkit_core::gamezone::{self, Feature};
+use lenovo_toolkit_core::its::{self, ItsMode};
 use lenovo_toolkit_core::lighting::{self, Light};
-use lenovo_toolkit_core::power::{self, AdapterStatus, PowerMode};
+use lenovo_toolkit_core::power::{self, AdapterStatus, PowerMode, WinPowerMode};
 use lenovo_toolkit_core::settings::{self, Lang, PowerSyncMode};
 use lenovo_toolkit_core::sysstat::{self, CpuMeter};
+use lenovo_toolkit_core::threshold::{self, ChargeThreshold};
 use lenovo_toolkit_core::wmi_util::Wmi;
 use lenovo_toolkit_core::{ai, energy};
 use lenovo_toolkit::{
     DASH, autorun_label_tr, autorun_options, battery_label_tr, battery_options,
     battery_status_line, build_battery_rows, custom_cap_tr, explain, hybrid_label_tr,
-    kbd_label_tr, kbd_options_tr, parse_autorun_label, parse_battery_label, parse_hybrid_label,
-    parse_kbd_label, parse_power_label, parse_powersync_label, parse_usb_label, percent,
-    power_label_tr, powersync_label_tr, powersync_options, ram_text, rpm, temp, tr, unsupported_notice,
-    usb_label_tr, usb_options,
+    its_label_tr, kbd_label_tr, kbd_options_tr, parse_autorun_label, parse_battery_label,
+    parse_hybrid_label, parse_its_label, parse_kbd_label, parse_power_label,
+    parse_powersync_label, parse_usb_label, parse_win_power_label, percent, power_label_tr,
+    powersync_label_tr, powersync_options, ram_text, rpm, temp, tr, usb_label_tr, usb_options,
+    win_power_label_tr, win_power_options,
 };
 use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 use lenovo_toolkit::tray::{self, TrayEvent};
@@ -183,15 +186,29 @@ struct Support {
     overdrive: bool,
     gpu_oc: bool,
     godmode_fnq: bool,
+    its: bool,
+    battery_mode: bool,
+    charge_threshold: bool,
     kbd_max: u32,
 }
 
 impl Support {
-    /// Mười cờ ở bit 0..9, `kbd_max` ở bit 16 trở lên.
+    /// Cờ tính năng ở bit 0..12, `kbd_max` ở bit 16 trở lên.
     fn to_mask(self) -> u32 {
         let flags = [
-            self.night, self.usb, self.logo, self.ports, self.touchpad, self.fnlock, self.winkey, self.overdrive,
-            self.gpu_oc, self.godmode_fnq,
+            self.night,
+            self.usb,
+            self.logo,
+            self.ports,
+            self.touchpad,
+            self.fnlock,
+            self.winkey,
+            self.overdrive,
+            self.gpu_oc,
+            self.godmode_fnq,
+            self.its,
+            self.battery_mode,
+            self.charge_threshold,
         ];
         flags.iter().enumerate().fold(self.kbd_max << 16, |m, (i, on)| m | (u32::from(*on) << i))
     }
@@ -209,13 +226,16 @@ impl Support {
             overdrive: bit(7),
             gpu_oc: bit(8),
             godmode_fnq: bit(9),
+            its: bit(10),
+            battery_mode: bit(11),
+            charge_threshold: bit(12),
             kbd_max: m >> 16,
         }
     }
 
     /// Bố cục tạm khi chưa dò phần cứng: danh sách của lần chạy trước, lần đầu thì hiện đủ mọi thẻ.
     fn placeholder() -> Self {
-        settings::layout_cache().map_or_else(|| Self::from_mask(0x0002_03FF), Self::from_mask)
+        settings::layout_cache().map_or_else(|| Self::from_mask(0x0002_0BFF), Self::from_mask)
     }
 }
 
@@ -225,15 +245,19 @@ fn fraction(value: i32, max: i32) -> f32 {
 
 fn detect_support(wmi: Option<&Wmi>, dev: Option<&Device>, info: Option<&MachineInfo>) -> Support {
     let mut s = Support::default();
+    let is_gaming = info.is_none_or(|i| i.class() == DeviceClass::Gaming);
     if let Some(d) = dev {
+        s.battery_mode = battery::get(d).is_ok();
+        s.its = its::is_supported(d);
         s.night = energy::night_charge_get(d).is_ok();
         s.usb = energy::usb_get(d).is_ok();
         s.fnlock = energy::fn_lock_get(d).is_ok();
         s.kbd_max = energy::kbd_max_level(d).unwrap_or(0);
     }
+    s.charge_threshold = threshold::get().is_ok() && threshold::open().is_ok();
     let lighting_excluded = info.is_some_and(|i| i.properties.is_excluded_from_lenovo_lighting);
     let logo_excluded = info.is_some_and(|i| i.properties.is_excluded_from_panel_logo_lenovo_lighting);
-    if let Some(w) = wmi {
+    if is_gaming && let Some(w) = wmi {
         s.ports = !lighting_excluded && lighting::is_supported(w, Light::Ports).unwrap_or(false);
         s.logo = !lighting_excluded && !logo_excluded && lighting::is_supported(w, Light::Logo).unwrap_or(false);
         s.touchpad = gamezone::is_supported_with(w, Feature::TouchpadLock).unwrap_or(false);
@@ -615,6 +639,10 @@ fn build_settings(
 
 /// Dựng 4 nhóm điều khiển (Power, Graphics, Display, Other) theo luồng dọc từ trên xuống.
 /// `current_mode` do nơi gọi đọc sẵn để không hỏi WMI chế độ nguồn thêm lần nữa.
+/// Hỗ trợ an toàn mọi dòng Lenovo qua driver chính hãng:
+/// - Gaming (Legion / LOQ / IdeaPad Gaming): WMI GameZone + EnergyDrv.
+/// - NonGaming (ThinkBook / IdeaPad / Yoga / XiaoXin / Slim / Motobook / Lenovo V): ITS (DYTC) qua EnergyDrv hoặc Windows Power Mode.
+/// - ThinkPad: Windows Power Mode (đồng bộ IBMPmDrv/LITSSVC) + ngưỡng sạc pin IBMPmDrv.
 #[allow(clippy::too_many_arguments)]
 fn build_groups(
     lang: Lang,
@@ -624,44 +652,96 @@ fn build_groups(
     sup: &Support,
     dgpu_awake: bool,
     current_mode: Option<PowerMode>,
+    its_geek_active: bool,
+    ac_connected: bool,
     // Khung hình đầu: chưa có kết nối phần cứng nhưng vẫn dựng đủ thẻ tĩnh, giá trị là "-" hoặc "đang đọc".
     loading: bool,
 ) -> [Vec<ItemSnap>; 4] {
-    // Máy không thuộc nhóm gaming (ITS): không dựng điều khiển ghi, tránh ghi bừa xuống firmware.
-    if info.is_some_and(|i| i.class() == DeviceClass::NonGaming) {
-        return [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-    }
+    let class = info.map_or(DeviceClass::Gaming, MachineInfo::class);
     let mut power_items = Vec::new();
     let mut graphics = Vec::new();
     let mut display = Vec::new();
     let mut other = Vec::new();
 
-    // 1. Power
-    let modes: Vec<PowerMode> = info
-        .map(|i| i.supported_power_modes.clone())
-        .filter(|m| !m.is_empty())
-        .unwrap_or_else(|| vec![PowerMode::Quiet, PowerMode::Balance, PowerMode::Performance]);
-    let mut pm = combo(
-        "powermode",
-        "\u{E945}",
-        tr(lang, "Power Mode", "Chế độ nguồn"),
-        tr(
-            lang,
-            "Change performance mode. Performance mode can also be changed with Fn+Q.",
-            "Chuyển chế độ hiệu năng. Có thể bấm tổ hợp phím Fn+Q để đổi nhanh.",
-        ),
-        modes.iter().map(|m| power_label_tr(*m, lang).to_string()).collect(),
-        current_mode.map_or_else(|| DASH.to_string(), |m| power_label_tr(m, lang).to_string()),
-    );
-    let ai_gear = current_mode == Some(PowerMode::Balance) && info.is_some_and(|i| i.properties.supports_ai_mode);
-    let custom_gear = current_mode == Some(PowerMode::GodMode)
-        && info.is_some_and(|i| i.properties.god_mode_platform == Some(GodModePlatform::Legion));
-    if ai_gear || custom_gear {
-        pm.kind = 2;
+    // 1. Power — chọn đúng cơ chế chính hãng theo từng dòng máy
+    match class {
+        DeviceClass::Gaming => {
+            let modes: Vec<PowerMode> = info
+                .map(|i| i.supported_power_modes.clone())
+                .filter(|m| !m.is_empty())
+                .unwrap_or_else(|| vec![PowerMode::Quiet, PowerMode::Balance, PowerMode::Performance]);
+            let mut pm = combo(
+                "powermode",
+                "\u{E945}",
+                tr(lang, "Power Mode", "Chế độ nguồn"),
+                tr(
+                    lang,
+                    "Change performance mode. Performance mode can also be changed with Fn+Q.",
+                    "Chuyển chế độ hiệu năng. Có thể bấm tổ hợp phím Fn+Q để đổi nhanh.",
+                ),
+                modes.iter().map(|m| power_label_tr(*m, lang).to_string()).collect(),
+                current_mode.map_or_else(|| DASH.to_string(), |m| power_label_tr(m, lang).to_string()),
+            );
+            let ai_gear = current_mode == Some(PowerMode::Balance) && info.is_some_and(|i| i.properties.supports_ai_mode);
+            let custom_gear = current_mode == Some(PowerMode::GodMode)
+                && info.is_some_and(|i| i.properties.god_mode_platform == Some(GodModePlatform::Legion));
+            if ai_gear || custom_gear {
+                pm.kind = 2;
+            }
+            power_items.push(pm);
+        }
+        DeviceClass::NonGaming => {
+            if sup.its
+                && let Some(d) = dev
+            {
+                let modes = its::supported_modes(d);
+                let cur = its::get(d, its_geek_active, ac_connected).ok().flatten();
+                power_items.push(combo(
+                    "itsmode",
+                    "\u{E945}",
+                    tr(lang, "Thermal Mode (ITS)", "Chế độ nhiệt & quạt (ITS)"),
+                    tr(
+                        lang,
+                        "Change official Lenovo Intelligent Cooling thermal & fan profile via EnergyDrv.",
+                        "Chuyển chế độ tản nhiệt và quạt chính hãng Lenovo Intelligent Cooling qua EnergyDrv.",
+                    ),
+                    modes.iter().map(|m| its_label_tr(*m, lang).to_string()).collect(),
+                    cur.map_or_else(|| DASH.to_string(), |m| its_label_tr(m, lang).to_string()),
+                ));
+            } else {
+                let cur = power::get_windows_power_mode().ok();
+                power_items.push(combo(
+                    "winpowermode",
+                    "\u{E945}",
+                    tr(lang, "Power Mode", "Chế độ nguồn"),
+                    tr(
+                        lang,
+                        "Change Windows Power Mode (synced automatically with Lenovo Intelligent Thermal Solution).",
+                        "Chuyển chế độ nguồn Windows (tự động đồng bộ vào dịch vụ tản nhiệt chính hãng Lenovo).",
+                    ),
+                    win_power_options(lang),
+                    cur.map_or_else(|| DASH.to_string(), |m| win_power_label_tr(m, lang).to_string()),
+                ));
+            }
+        }
+        DeviceClass::ThinkPad => {
+            let cur = power::get_windows_power_mode().ok();
+            power_items.push(combo(
+                "winpowermode",
+                "\u{E945}",
+                tr(lang, "Power Mode (ThinkPad)", "Chế độ nguồn (ThinkPad)"),
+                tr(
+                    lang,
+                    "Change Windows Power Mode synced directly with Lenovo IBMPmDrv / Intelligent Thermal Solution.",
+                    "Chuyển chế độ nguồn Windows đồng bộ trực tiếp vào driver chính hãng IBMPmDrv / tản nhiệt ThinkPad.",
+                ),
+                win_power_options(lang),
+                cur.map_or_else(|| DASH.to_string(), |m| win_power_label_tr(m, lang).to_string()),
+            ));
+        }
     }
-    power_items.push(pm);
 
-    if dev.is_some() || loading {
+    if (sup.battery_mode && dev.is_some()) || (loading && class == DeviceClass::Gaming) {
         power_items.push(combo(
             "batterymode",
             "\u{E83E}",
@@ -669,6 +749,35 @@ fn build_groups(
             tr(lang, "Choose how the battery is charged.", "Chọn chế độ sạc và bảo vệ tuổi thọ pin."),
             battery_options(lang),
             dev.and_then(|d| battery::get(d).ok()).map_or_else(|| DASH.to_string(), |b| battery_label_tr(b, lang).to_string()),
+        ));
+    }
+    if sup.charge_threshold {
+        let th = threshold::get().ok();
+        let enabled = th.is_some_and(|t| t.enabled);
+        let desc = match th {
+            Some(t) => match lang {
+                Lang::En => format!(
+                    "Limit battery charging via official IBMPmDrv (start at {}%, stop at {}%).",
+                    t.start, t.stop
+                ),
+                Lang::Vi => format!(
+                    "Giới hạn ngưỡng sạc pin qua driver chính hãng IBMPmDrv (bắt đầu {}%, dừng {}%).",
+                    t.start, t.stop
+                ),
+            },
+            None => tr(
+                lang,
+                "Limit battery charging via official IBMPmDrv (75%–80%).",
+                "Giới hạn ngưỡng sạc pin qua driver chính hãng IBMPmDrv (75%–80%).",
+            )
+            .to_string(),
+        };
+        power_items.push(toggle(
+            "chargethreshold",
+            "\u{E83E}",
+            tr(lang, "Battery Charge Threshold", "Ngưỡng bảo vệ sạc pin"),
+            desc,
+            enabled,
         ));
     }
     if sup.night && (dev.is_some() || loading) {
@@ -699,8 +808,8 @@ fn build_groups(
         ));
     }
 
-    // 2. Graphics (GPU Working Mode, Discrete GPU, Overclock GPU)
-    if (wmi.is_some() && info.is_some()) || loading {
+    // 2. Graphics (GPU Working Mode, Discrete GPU, Overclock GPU — chỉ cho nhóm Gaming có WMI GameZone)
+    if class == DeviceClass::Gaming && ((wmi.is_some() && info.is_some()) || loading) {
         // Chưa biết máy hỗ trợ gì (khung hình đầu): cứ hiện đủ lựa chọn, sau khi dò xong sẽ thu lại cho đúng.
         let gsync_sup = info.is_none_or(|i| i.properties.supports_gsync);
         let igpu_sup = info.is_none_or(|i| i.properties.supports_igpu_mode);
@@ -927,6 +1036,7 @@ struct Worker {
     device_info_due: bool,
     op_list_cache: Option<Vec<(String, i32)>>,
     rate_tracker: RateTracker,
+    its_geek_active: bool,
     visible: bool,
     page: i32,
     last_error: String,
@@ -988,6 +1098,7 @@ impl Worker {
             device_info_due: false,
             op_list_cache: None,
             rate_tracker: RateTracker::default(),
+            its_geek_active: false,
             visible: start_visible,
             page: 0,
             last_error: String::new(),
@@ -1041,32 +1152,31 @@ impl Worker {
         s
     }
 
-    /// Thiết bị thuộc nhóm gaming (hoặc chưa rõ): chỉ khi đó mới ghi xuống phần cứng.
-    fn gaming(&self) -> bool {
-        self.info.as_ref().is_none_or(|i| i.class() == DeviceClass::Gaming)
+    fn device_class(&self) -> DeviceClass {
+        self.info.as_ref().map_or(DeviceClass::Gaming, MachineInfo::class)
     }
 
-    /// Thông báo "chưa hỗ trợ" cho máy không gaming; rỗng nếu là máy gaming.
-    fn unsupported_message(&self) -> String {
-        self.info
-            .as_ref()
-            .filter(|i| i.class() == DeviceClass::NonGaming)
-            .map(|i| unsupported_notice(self.lang, &i.model))
-            .unwrap_or_default()
+    /// Thiết bị thuộc nhóm gaming (hoặc chưa rõ).
+    fn gaming(&self) -> bool {
+        self.device_class() == DeviceClass::Gaming
     }
 
     /// Đọc nhanh số liệu cho tooltip khay (chỉ chạy khi rê chuột vào biểu tượng) rồi gửi cho cửa sổ tooltip.
     fn show_tooltip(&mut self) {
         let lang = self.lang;
-        let _ = self.ensure_wmi();
-        if self.profile.is_none()
-            && let Some(w) = self.wmi.as_ref()
-        {
-            self.profile = fan::detect(w).ok();
-        }
-        let sensors = match (self.wmi.as_ref(), self.profile) {
-            (Some(w), Some(p)) => fan::read(w, p).ok(),
-            _ => None,
+        let sensors = if self.gaming() {
+            let _ = self.ensure_wmi();
+            if self.profile.is_none()
+                && let Some(w) = self.wmi.as_ref()
+            {
+                self.profile = fan::detect(w).ok();
+            }
+            match (self.wmi.as_ref(), self.profile) {
+                (Some(w), Some(p)) => fan::read(w, p).ok(),
+                _ => None,
+            }
+        } else {
+            None
         };
         // % CPU cần hai mẫu cách nhau: lấy mẫu mồi rồi đọc lại sau một khoảng ngắn.
         let _ = self.cpu.sample();
@@ -1078,13 +1188,33 @@ impl Worker {
         // Chỉ hỏi NVAPI khi card rời đang thức (hỏi lúc nó ngủ sẽ đánh thức nó); nhiệt độ ưu tiên NVAPI rồi mới tới EC như bản C#.
         let nv = gpu_stats_if_awake(sysstat::nvidia_gpu_awake());
         let gpu_temp = nv.temp_c.unwrap_or(ec_gpu_temp);
-        let mode = self
-            .wmi
-            .as_ref()
-            .and_then(|w| power::get_with(w).ok())
-            .map_or_else(|| DASH.to_string(), |m| power_label_tr(m, lang).to_string());
-        let mem = sysstat::memory().ok();
         let bat = sysstat::battery().ok();
+        let ac_online = bat.is_some_and(|b| b.ac_online);
+        let mode = match self.device_class() {
+            DeviceClass::Gaming => self
+                .wmi
+                .as_ref()
+                .and_then(|w| power::get_with(w).ok())
+                .map_or_else(|| DASH.to_string(), |m| power_label_tr(m, lang).to_string()),
+            DeviceClass::NonGaming => {
+                if let Some(d) = self.dev.as_ref()
+                    && self.support.is_some_and(|s| s.its)
+                {
+                    its::get(d, self.its_geek_active, ac_online)
+                        .ok()
+                        .flatten()
+                        .map_or_else(|| DASH.to_string(), |m| its_label_tr(m, lang).to_string())
+                } else {
+                    power::get_windows_power_mode()
+                        .ok()
+                        .map_or_else(|| DASH.to_string(), |m| win_power_label_tr(m, lang).to_string())
+                }
+            }
+            DeviceClass::ThinkPad => power::get_windows_power_mode()
+                .ok()
+                .map_or_else(|| DASH.to_string(), |m| win_power_label_tr(m, lang).to_string()),
+        };
+        let mem = sysstat::memory().ok();
 
         let mut lines = vec![lenovo_toolkit::app_title(), format!("{}: {mode}", tr(lang, "Power mode", "Chế độ nguồn"))];
         if self.gaming() {
@@ -1140,8 +1270,27 @@ impl Worker {
                 Ok(())
             }
             Cmd::Tooltip => Ok(()),
-            Cmd::QuickPower(_) if !self.gaming() => Err(self.unsupported_message()),
-            Cmd::QuickPower(mode) => self.switch_power(mode),
+            Cmd::QuickPower(mode) => match self.device_class() {
+                DeviceClass::Gaming => self.switch_power(mode),
+                DeviceClass::NonGaming if self.support.is_some_and(|s| s.its) => {
+                    let target = match mode {
+                        PowerMode::Quiet => ItsMode::Cool,
+                        PowerMode::Balance => ItsMode::Auto,
+                        PowerMode::Performance | PowerMode::Extreme | PowerMode::GodMode => ItsMode::Performance,
+                    };
+                    let ac = sysstat::battery().is_ok_and(|b| b.ac_online);
+                    self.its_geek_active = false;
+                    self.dev().and_then(|d| its::set(d, target, ac).map_err(explain))
+                }
+                DeviceClass::NonGaming | DeviceClass::ThinkPad => {
+                    let target = match mode {
+                        PowerMode::Quiet => WinPowerMode::BestPowerEfficiency,
+                        PowerMode::Balance => WinPowerMode::Balanced,
+                        PowerMode::Performance | PowerMode::Extreme | PowerMode::GodMode => WinPowerMode::BestPerformance,
+                    };
+                    power::set_windows_power_mode(target).map_err(explain)
+                }
+            },
             Cmd::CycleRefreshRate => {
                 // Chỉ xử lý Fn+R khi dịch vụ Lenovo Hotkeys đã tắt hoặc không có trên máy
                 if disabler::status(Software::FnKeys).is_ok_and(|s| s == Status::Enabled) {
@@ -1586,6 +1735,17 @@ impl Worker {
                 let mode = parse_power_label(value).ok_or_else(bad)?;
                 self.switch_power(mode)
             }
+            "itsmode" => {
+                let mode = parse_its_label(value).ok_or_else(bad)?;
+                let ac = sysstat::battery().is_ok_and(|b| b.ac_online);
+                its::set(self.dev()?, mode, ac).map_err(explain)?;
+                self.its_geek_active = mode == ItsMode::Geek;
+                Ok(())
+            }
+            "winpowermode" => {
+                let mode = parse_win_power_label(value).ok_or_else(bad)?;
+                power::set_windows_power_mode(mode).map_err(explain)
+            }
             "hybridmode" => {
                 let mode = parse_hybrid_label(value).ok_or_else(bad)?;
                 let (gsync, igpu) = self
@@ -1651,6 +1811,13 @@ impl Worker {
             "disable-legionspace" => software(Software::LegionSpace, settings::DISABLE_LEGION_SPACE, "Legion Space"),
             "disable-fnkeys" => software(Software::FnKeys, settings::DISABLE_LENOVO_HOTKEYS, "Lenovo Hotkeys"),
             "nightcharge" => energy::night_charge_set(self.dev()?, on).map_err(explain),
+            "chargethreshold" => {
+                let cur = threshold::get().unwrap_or(ChargeThreshold { enabled: false, start: 75, stop: 80 });
+                let target = ChargeThreshold::new(on, cur.start.min(98), cur.stop.max(cur.start + 1).min(99))
+                    .map_err(explain)?;
+                let ibm = threshold::open().map_err(explain)?;
+                threshold::set(&ibm, target).map_err(explain)
+            }
             "overdrive" => {
                 let w = self.ensure_wmi().ok_or("WMI unavailable")?;
                 gamezone::set_with(w, Feature::OverDrive, i32::from(on)).map_err(explain)
@@ -1756,8 +1923,8 @@ impl Worker {
             problems.push(self.last_error.clone());
         }
 
-        // Chỉ đọc cảm biến WMI khi đang ở trang Dashboard (page == 0) để giảm tải tối đa.
-        let readings = if self.page == 0 {
+        // Chỉ đọc cảm biến WMI GameZone khi đang ở trang Dashboard (page == 0) và máy thuộc nhóm Gaming.
+        let readings = if self.page == 0 && self.gaming() {
             match self.wmi.as_ref() {
                 Some(w) => {
                     if self.profile.is_none() {
@@ -1919,6 +2086,10 @@ impl Worker {
         }
         let sup = self.support.unwrap_or_default();
 
+        let ac_online = bat.is_some_and(|b| b.ac_online);
+        if !ac_online {
+            self.its_geek_active = false;
+        }
         let groups = if check_items {
             Some(build_groups(
                 lang,
@@ -1928,6 +2099,8 @@ impl Worker {
                 &sup,
                 dgpu_awake,
                 power_mode,
+                self.its_geek_active,
+                ac_online,
                 false,
             ))
         } else {
@@ -1965,7 +2138,7 @@ impl Worker {
             settings_items,
             model: self.info.as_ref().map_or_else(|| "Lenovo".to_string(), |i| i.model.clone()),
             status: problems.join(" · "),
-            notice: self.unsupported_message(),
+            notice: String::new(),
             ai_enabled: ai_on,
             sensor_sections,
             groups,
@@ -2180,7 +2353,7 @@ fn skeleton(lang: Lang) -> Snapshot {
             sensors("GPU", String::new(), vec![util, temp_l, fan]),
             sensors(tr(lang, "System", "Hệ thống"), tr(lang, "Memory & Board", "Bộ nhớ & Bo mạch").into(), vec!["RAM", tr(lang, "Battery", "Pin")]),
         ],
-        groups: Some(build_groups(lang, None, None, None, &Support::placeholder(), false, None, true)),
+        groups: Some(build_groups(lang, None, None, None, &Support::placeholder(), false, None, false, false, true)),
         battery_percent: DASH.into(),
         battery_status: DASH.into(),
         battery_rows: Some(build_battery_rows(&blank, lang).into_iter().map(|(t, m, _)| (t, m, DASH.to_string())).collect()),
