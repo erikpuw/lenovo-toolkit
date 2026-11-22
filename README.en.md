@@ -11,7 +11,7 @@
   A Rust port of LenovoLegionToolkit with a Slint interface, about 6.3 MB installer, no .NET.
 </p>
 
-<p align="center"><a href="README.md">Tiếng Việt</a> · <b>English</b> · <a href="https://github.com/erikpuw/lenovo-toolkit/releases">Latest: v1.0.4</a></p>
+<p align="center"><a href="README.md">Tiếng Việt</a> · <b>English</b> · <a href="https://github.com/erikpuw/lenovo-toolkit/releases/latest">Latest: v1.0.4</a></p>
 
 > This is an unofficial project and is not affiliated with Lenovo. It writes to firmware through the Lenovo drivers and WMI, so use it at your own risk. Download builds only from this repository's [Releases](https://github.com/erikpuw/lenovo-toolkit/releases). The app is not code-signed, so Windows may show a SmartScreen warning the first time.
 
@@ -44,7 +44,7 @@ The group comes from the model name. Gaming-only controls stay hidden on non-gam
 ## Install
 
 1. If Lenovo Toolkit is already running, close it completely (including from the system tray) before installing or upgrading.
-2. Download `lenovo-toolkit-setup-v<ver>-x64.exe` (about 6.3 MB) from [Releases](https://github.com/erikpuw/lenovo-toolkit/releases) and run it to install. It bundles both the app and `lenovo-toolkit-cli.exe`, and creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps.
+2. Download `lenovo-toolkit-setup-v1.0.4-x64.exe` (about 6.3 MB) from [Releases](https://github.com/erikpuw/lenovo-toolkit/releases/latest) and run it to install. It bundles both the app and `lenovo-toolkit-cli.exe`, and creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps.
 3. The app asks for administrator permission because it talks to the drivers.
 
 ## Build from source

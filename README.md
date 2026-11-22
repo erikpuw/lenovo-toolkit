@@ -11,7 +11,7 @@
   Bản port Rust của LenovoLegionToolkit, giao diện Slint, bộ cài khoảng 6,3 MB, không cần .NET.
 </p>
 
-<p align="center"><b>Tiếng Việt</b> · <a href="README.en.md">English</a> · <a href="https://github.com/erikpuw/lenovo-toolkit/releases">Bản mới nhất: v1.0.4</a></p>
+<p align="center"><b>Tiếng Việt</b> · <a href="README.en.md">English</a> · <a href="https://github.com/erikpuw/lenovo-toolkit/releases/latest">Bản mới nhất: v1.0.4</a></p>
 
 > Đây là dự án không chính thức, không liên kết với Lenovo. Ứng dụng ghi xuống firmware qua driver Lenovo và WMI, nên hãy tự chịu rủi ro khi dùng. Chỉ tải bản dựng ở mục [Releases](https://github.com/erikpuw/lenovo-toolkit/releases) của repository này. Ứng dụng chưa ký số, nên lần đầu Windows có thể hiện cảnh báo SmartScreen.
 
@@ -44,7 +44,7 @@ Nhóm máy được xác định theo tên model. Các lệnh chỉ dùng cho m�
 ## Cài đặt
 
 1. Nếu Lenovo Toolkit đang chạy, hãy tắt hẳn ứng dụng (kể cả biểu tượng dưới khay hệ thống) trước khi cài đặt hoặc cập nhật.
-2. Tải `lenovo-toolkit-setup-v<ver>-x64.exe` (khoảng 6,3 MB) ở mục [Releases](https://github.com/erikpuw/lenovo-toolkit/releases) rồi chạy để cài đặt. Bộ cài gồm sẵn bản giao diện và `lenovo-toolkit-cli.exe`, tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps.
+2. Tải `lenovo-toolkit-setup-v1.0.4-x64.exe` (khoảng 6,3 MB) ở mục [Releases](https://github.com/erikpuw/lenovo-toolkit/releases/latest) rồi chạy để cài đặt. Bộ cài gồm sẵn bản giao diện và `lenovo-toolkit-cli.exe`, tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps.
 3. Ứng dụng xin quyền quản trị vì phải nói chuyện với driver.
 
 ## Build từ mã nguồn
