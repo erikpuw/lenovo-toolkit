@@ -43,8 +43,8 @@ The group comes from the model name. Gaming-only controls stay hidden on non-gam
 
 ## Install
 
-1. Download `lenovo-toolkit-setup-v<ver>-x64.exe` from Releases and run it to install (creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps).
-2. Or download the standalone `lenovo-toolkit-v<ver>-portable-x64.exe`. It asks for administrator permission because it talks to the drivers.
+1. Download `lenovo-toolkit-setup-v<ver>-x64.exe` from Releases and run it to install (bundles both the app and `lenovo-toolkit-cli.exe`, creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps).
+2. The app asks for administrator permission because it talks to the drivers.
 
 ## Build from source
 
@@ -54,11 +54,9 @@ You need Windows x64, a recent stable Rust (edition 2024) and the Windows SDK, w
 cargo test --workspace
 cargo build --release
 
-# Build versioned installer + portable binaries into dist/
+# Build the versioned installer into dist/
 powershell -ExecutionPolicy Bypass -File tools/build-dist.ps1
 # -> dist/lenovo-toolkit-setup-v<ver>-x64.exe
-# -> dist/lenovo-toolkit-v<ver>-portable-x64.exe
-# -> dist/lenovo-toolkit-cli-v<ver>-x64.exe
 ```
 
 The app embeds an administrator manifest, so run `cargo run --release -p lenovo-toolkit` from an elevated terminal.

@@ -43,8 +43,8 @@ Nhóm máy được xác định theo tên model. Các lệnh chỉ dùng cho m�
 
 ## Cài đặt
 
-1. Tải `lenovo-toolkit-setup-v<ver>-x64.exe` ở mục Releases rồi chạy để cài đặt (tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps).
-2. Hoặc tải bản chạy trực tiếp `lenovo-toolkit-v<ver>-portable-x64.exe`. Ứng dụng xin quyền quản trị vì phải nói chuyện với driver.
+1. Tải `lenovo-toolkit-setup-v<ver>-x64.exe` ở mục Releases rồi chạy để cài đặt (gồm sẵn bản giao diện và `lenovo-toolkit-cli.exe`, tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps).
+2. Ứng dụng xin quyền quản trị vì phải nói chuyện với driver.
 
 ## Build từ mã nguồn
 
@@ -54,11 +54,9 @@ Cần Windows x64, Rust stable mới (edition 2024) và Windows SDK, nơi có `r
 cargo test --workspace
 cargo build --release
 
-# Tạo bản cài đặt + bản portable đánh số phiên bản vào thư mục dist/
+# Tạo bản cài đặt đánh số phiên bản vào thư mục dist/
 powershell -ExecutionPolicy Bypass -File tools/build-dist.ps1
 # -> dist/lenovo-toolkit-setup-v<ver>-x64.exe
-# -> dist/lenovo-toolkit-v<ver>-portable-x64.exe
-# -> dist/lenovo-toolkit-cli-v<ver>-x64.exe
 ```
 
 Ứng dụng nhúng manifest quyền quản trị, nên chạy `cargo run --release -p lenovo-toolkit` từ terminal đã nâng quyền.
