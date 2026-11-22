@@ -8,7 +8,7 @@
 
 <p align="center">
   Chế độ nguồn, quạt và cảm biến, pin, đèn và phím Fn trong một cửa sổ nhẹ nằm ở khay hệ thống.<br>
-  Bản port Rust của LenovoLegionToolkit, giao diện Slint, khoảng 10 MB, không cần .NET.
+  Bản port Rust của LenovoLegionToolkit, giao diện Slint, bộ cài khoảng 6,3 MB, không cần .NET.
 </p>
 
 <p align="center"><b>Tiếng Việt</b> · <a href="README.en.md">English</a></p>
@@ -43,8 +43,9 @@ Nhóm máy được xác định theo tên model. Các lệnh chỉ dùng cho m�
 
 ## Cài đặt
 
-1. Tải `lenovo-toolkit-setup-v<ver>-x64.exe` ở mục Releases rồi chạy để cài đặt (gồm sẵn bản giao diện và `lenovo-toolkit-cli.exe`, tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps).
-2. Ứng dụng xin quyền quản trị vì phải nói chuyện với driver.
+1. Nếu Lenovo Toolkit đang chạy, hãy tắt hẳn ứng dụng (kể cả biểu tượng dưới khay hệ thống) trước khi cài đặt hoặc cập nhật.
+2. Tải `lenovo-toolkit-setup-v<ver>-x64.exe` (khoảng 6,3 MB) ở mục Releases rồi chạy để cài đặt. Bộ cài gồm sẵn bản giao diện và `lenovo-toolkit-cli.exe`, tạo lối tắt Start Menu, Desktop, lịch tự khởi động ẩn cùng Windows và mục gỡ cài đặt trong Settings -> Apps.
+3. Ứng dụng xin quyền quản trị vì phải nói chuyện với driver.
 
 ## Build từ mã nguồn
 

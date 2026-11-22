@@ -8,7 +8,7 @@
 
 <p align="center">
   Power modes, fans and sensors, battery, lights and Fn keys in one light window that lives in the tray.<br>
-  A Rust port of LenovoLegionToolkit with a Slint interface, about 10 MB, no .NET.
+  A Rust port of LenovoLegionToolkit with a Slint interface, about 6.3 MB installer, no .NET.
 </p>
 
 <p align="center"><a href="README.md">Tiếng Việt</a> · <b>English</b></p>
@@ -43,8 +43,9 @@ The group comes from the model name. Gaming-only controls stay hidden on non-gam
 
 ## Install
 
-1. Download `lenovo-toolkit-setup-v<ver>-x64.exe` from Releases and run it to install (bundles both the app and `lenovo-toolkit-cli.exe`, creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps).
-2. The app asks for administrator permission because it talks to the drivers.
+1. If Lenovo Toolkit is already running, close it completely (including from the system tray) before installing or upgrading.
+2. Download `lenovo-toolkit-setup-v<ver>-x64.exe` (about 6.3 MB) from Releases and run it to install. It bundles both the app and `lenovo-toolkit-cli.exe`, and creates Start Menu and Desktop shortcuts, a hidden logon task and an entry in Settings -> Apps.
+3. The app asks for administrator permission because it talks to the drivers.
 
 ## Build from source
 
