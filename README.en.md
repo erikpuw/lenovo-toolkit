@@ -41,6 +41,13 @@
 
 The group comes from the model name. Gaming-only controls stay hidden on non-gaming laptops and ThinkPads.
 
+## Screenshots
+
+| Screenshot | Screenshot |
+|---|---|
+| ![Home](assets/screenshots/home.jpg)<br>**Home**: CPU, GPU, system, power mode, battery and graphics | ![Battery info](assets/screenshots/battery.png)<br>**Battery info**: temperature, charge rate, capacity, health |
+| ![Settings](assets/screenshots/settings.png)<br>**Settings**: language, start with Windows, minimize to tray | ![About this device](assets/screenshots/about.jpg)<br>**About this device**: model, BIOS, motherboard, storage, battery, network adapters |
+
 ## Install
 
 1. If Lenovo Toolkit is already running, close it completely (including from the system tray) before installing or upgrading.

@@ -41,6 +41,13 @@
 
 Nhóm máy được xác định theo tên model. Các lệnh chỉ dùng cho máy Gaming sẽ tự ẩn trên máy không gaming và ThinkPad.
 
+## Ảnh chụp
+
+| Ảnh chụp | Ảnh chụp |
+|---|---|
+| ![Trang chính](assets/screenshots/home.jpg)<br>**Trang chính**: CPU, GPU, hệ thống, chế độ nguồn, pin và đồ họa | ![Thông tin pin](assets/screenshots/battery.png)<br>**Thông tin pin**: nhiệt độ, công suất sạc, dung lượng, sức khỏe |
+| ![Cài đặt](assets/screenshots/settings.png)<br>**Cài đặt**: ngôn ngữ, khởi động cùng Windows, thu nhỏ xuống khay | ![Về thiết bị](assets/screenshots/about.jpg)<br>**Về thiết bị**: model, BIOS, bo mạch, bộ nhớ, pin, card mạng |
+
 ## Cài đặt
 
 1. Nếu Lenovo Toolkit đang chạy, hãy tắt hẳn ứng dụng (kể cả biểu tượng dưới khay hệ thống) trước khi cài đặt hoặc cập nhật.
