@@ -1,5 +1,15 @@
 [workspace]
-members = ["crates/lenovo-toolkit-core", "crates/lenovo-toolkit-cli", "crates/lenovo-toolkit"]
+members = [
+    "crates/lenovo-toolkit-core",
+    "crates/lenovo-toolkit-cli",
+    "crates/lenovo-toolkit",
+    "crates/lenovo-toolkit-setup",
+]
+default-members = [
+    "crates/lenovo-toolkit-core",
+    "crates/lenovo-toolkit-cli",
+    "crates/lenovo-toolkit",
+]
 resolver = "3"
 
 [profile.release]
