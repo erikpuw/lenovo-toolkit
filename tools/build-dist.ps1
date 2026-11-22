@@ -26,28 +26,6 @@ try {
     Copy-Item -Force (Join-Path $root 'target\release\lenovo-toolkit-setup.exe') $setup
     Copy-Item -Force (Join-Path $root 'target\release\lenovo-toolkit-cli.exe') $cli
 
-    $sizeEn = ([math]::Round((Get-Item $setup).Length / 1MB, 1)).ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture)
-    $sizeVi = $sizeEn.Replace('.', ',')
-    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-
-    $readmeViPath = Join-Path $root 'README.md'
-    if (Test-Path $readmeViPath) {
-        $text = [System.IO.File]::ReadAllText($readmeViPath, $utf8NoBom)
-        $text = [regex]::Replace($text, 'Bản mới nhất: v\d+\.\d+\.\d+', "Bản mới nhất: v$ver")
-        $text = [regex]::Replace($text, 'lenovo-toolkit-setup-v\d+\.\d+\.\d+-x64\.exe', "lenovo-toolkit-setup-v$ver-x64.exe")
-        $text = [regex]::Replace($text, 'khoảng \d+(?:,\d+)? MB', "khoảng $sizeVi MB")
-        [System.IO.File]::WriteAllText($readmeViPath, $text, $utf8NoBom)
-    }
-
-    $readmeEnPath = Join-Path $root 'README.en.md'
-    if (Test-Path $readmeEnPath) {
-        $text = [System.IO.File]::ReadAllText($readmeEnPath, $utf8NoBom)
-        $text = [regex]::Replace($text, 'Latest: v\d+\.\d+\.\d+', "Latest: v$ver")
-        $text = [regex]::Replace($text, 'lenovo-toolkit-setup-v\d+\.\d+\.\d+-x64\.exe', "lenovo-toolkit-setup-v$ver-x64.exe")
-        $text = [regex]::Replace($text, 'about \d+(?:\.\d+)? MB', "about $sizeEn MB")
-        [System.IO.File]::WriteAllText($readmeEnPath, $text, $utf8NoBom)
-    }
-
     Get-Item $setup, $portable, $cli |
         Select-Object Name, Length, @{Name='KB';Expression={[math]::Round($_.Length/1024,1)}} |
         Format-Table -AutoSize
